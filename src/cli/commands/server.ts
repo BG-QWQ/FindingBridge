@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { loadOrCreateConfig } from '../../config/config.js';
-import type { SourceConfig } from '../../config/validation.js';
+import type { SourceConfig, TokenStorage } from '../../config/validation.js';
 import { logger } from '../../utils/logger.js';
 import { runDemoMode } from '../demo-mode.js';
 import { startFindingBridgeStdioServer } from '../../mcp-server/stdio.js';
@@ -29,7 +29,7 @@ export function createServerCommand(): Command {
       if (!dbPath) {
         throw new Error('Database path is not configured. Run findingbridge init or pass --db.');
       }
-      await startMcpServer(dbPath, loadedConfig.config.sources);
+      await startMcpServer(dbPath, loadedConfig.config.sources, loadedConfig.config.token_storage);
     });
 }
 
@@ -37,8 +37,9 @@ export function createServerCommand(): Command {
 export async function startMcpServer(
   dbPath: string,
   configuredSources: SourceConfig[] = [],
+  tokenStorage: TokenStorage = 'keychain',
   demoMode = false
 ): Promise<void> {
   logger.info('Starting FindingBridge MCP server over stdio.', { db_path: dbPath });
-  await startFindingBridgeStdioServer({ dbPath, configuredSources, demoMode });
+  await startFindingBridgeStdioServer({ dbPath, configuredSources, tokenStorage, demoMode });
 }

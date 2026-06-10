@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import { createConnection } from '../database/connection.js';
 import { FindingRepository } from '../database/repositories/finding-repo.js';
 import { RuleRepository } from '../database/repositories/rule-repo.js';
-import type { SourceConfig } from '../config/validation.js';
+import type { SourceConfig, TokenStorage } from '../config/validation.js';
 
 /**
  * Hold shared dependencies for MCP tool handlers.
@@ -21,6 +21,7 @@ export interface FindingBridgeMcpContext {
 export interface FindingBridgeRuntimeMetadata {
   databasePath?: string;
   configuredSources: SourceConfig[];
+  tokenStorage: TokenStorage;
   demoMode: boolean;
 }
 
@@ -34,6 +35,7 @@ export interface CreateFindingBridgeMcpContextOptions {
   db?: Database.Database;
   dbPath?: string;
   configuredSources?: SourceConfig[];
+  tokenStorage?: TokenStorage;
   demoMode?: boolean;
 }
 
@@ -55,6 +57,7 @@ export function createFindingBridgeMcpContext(
     runtime: {
       databasePath: options.dbPath,
       configuredSources: options.configuredSources ?? [],
+      tokenStorage: options.tokenStorage ?? 'keychain',
       demoMode: options.demoMode ?? false,
     },
   };

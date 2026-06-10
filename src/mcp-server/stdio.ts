@@ -1,5 +1,5 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import type { SourceConfig } from '../config/validation.js';
+import type { SourceConfig, TokenStorage } from '../config/validation.js';
 import { createFindingBridgeMcpServer } from './server.js';
 
 /**
@@ -11,6 +11,7 @@ import { createFindingBridgeMcpServer } from './server.js';
 export async function startFindingBridgeStdioServer(params?: {
   dbPath?: string;
   configuredSources?: SourceConfig[];
+  tokenStorage?: TokenStorage;
   demoMode?: boolean;
 }): Promise<void> {
   const server = createFindingBridgeMcpServer(params);

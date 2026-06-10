@@ -22,5 +22,5 @@ export async function runDemoMode(): Promise<void> {
   } finally {
     closeConnection(db);
   }
-  await startMcpServer(dbPath, [], true);
+  await startMcpServer(dbPath, [], 'keychain', true);
 }
