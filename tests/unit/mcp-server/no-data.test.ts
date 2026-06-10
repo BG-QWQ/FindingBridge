@@ -6,6 +6,7 @@ import { FindingRepository } from '@/database/repositories/finding-repo.js';
 import { RuleRepository } from '@/database/repositories/rule-repo.js';
 import { listFindingsTool } from '@/mcp-server/tools/list-findings.js';
 import { summaryTool } from '@/mcp-server/tools/summary.js';
+import { syncSourcesTool } from '@/mcp-server/tools/sync-sources.js';
 import type { FindingBridgeToolEnvelope } from '@/mcp-server/tool-result.js';
 import type { FindingBridgeMcpContext } from '@/mcp-server/context.js';
 import type { Finding } from '@/core/models/finding.js';
@@ -32,6 +33,7 @@ describe('MCP no-data responses', () => {
       runtime: {
         databasePath: ':memory:',
         configuredSources: [],
+        tokenStorage: 'keychain',
         demoMode: false,
       },
     };
@@ -89,6 +91,7 @@ describe('MCP no-data responses', () => {
       runtime: {
         databasePath: ':memory:',
         demoMode: false,
+        tokenStorage: 'keychain',
         configuredSources: [
           {
             id: 'sonarcloud',
@@ -141,6 +144,41 @@ describe('MCP no-data responses', () => {
         remediation_steps: expect.arrayContaining([
           expect.stringContaining('back up and delete that stale SQLite database file'),
         ]),
+      }),
+    ]);
+  });
+
+  it('returns structured sync guidance for unsupported MCP source synchronization', async () => {
+    context = {
+      ...context,
+      runtime: {
+        databasePath: ':memory:',
+        configuredSources: [
+          {
+            id: 'socket-dev',
+            type: 'socket',
+            enabled: true,
+            options: {},
+          },
+        ],
+        tokenStorage: 'keychain',
+        demoMode: false,
+      },
+    };
+
+    const data = unwrapData(await syncSourcesTool(context, { max_pages: 20 }));
+
+    expect(data).toMatchObject({
+      sources_total: 1,
+      sources_failed: 1,
+      repository_modified: false,
+      database_modified: true,
+    });
+    expect(data.results).toEqual([
+      expect.objectContaining({
+        source_id: 'socket-dev',
+        status: 'failed',
+        next_steps: [expect.stringContaining('Export the platform results as SARIF')],
       }),
     ]);
   });
