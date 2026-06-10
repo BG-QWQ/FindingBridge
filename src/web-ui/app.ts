@@ -12,10 +12,14 @@ import {
   type TestConnectionResponse,
   type McpClientDetection,
   type WriteConfigResponse,
+  type TokenStorage,
+  type SaveSetupSource,
   getSetupStatus,
   testConnection,
   detectMcpClients,
   writeConfig,
+  saveSetup,
+  startServer,
 } from './setup-api.js';
 
 // ── Wizard state ──────────────────────────────────────────────────────
@@ -44,11 +48,12 @@ interface WizardState {
   githubRepo: string;
   sonarcloudToken: string;
   sonarcloudProject: string;
-  tokenStorage: 'keychain' | 'plaintext' | 'env';
+  tokenStorage: TokenStorage;
   connectionResults: Map<ScannerType, TestConnectionResponse>;
   mcpClients: McpClientDetection | null;
   configResults: Map<string, WriteConfigResponse>;
   setupStatus: SetupStatus | null;
+  setupSaved: boolean;
 }
 
 const state: WizardState = {
@@ -65,6 +70,7 @@ const state: WizardState = {
   mcpClients: null,
   configResults: new Map(),
   setupStatus: null,
+  setupSaved: false,
 };
 
 // ── DOM helpers ───────────────────────────────────────────────────────
@@ -422,9 +428,82 @@ function initSecuritySettingsStep(): void {
       radioOptions.forEach((o) => o.classList.remove('selected'));
       option.classList.add('selected');
       input.checked = true;
-      state.tokenStorage = input.value as 'keychain' | 'plaintext' | 'env';
+      state.tokenStorage = input.value as TokenStorage;
+      state.setupSaved = false;
     });
   });
+}
+
+/** Build the setup persistence payload from the current wizard state. */
+function buildSetupSources(): SaveSetupSource[] {
+  const sources: SaveSetupSource[] = [];
+
+  if (state.selectedScanners.has('sarif')) {
+    sources.push({
+      id: 'local-sarif',
+      type: 'sarif',
+      name: 'Local SARIF Files',
+      enabled: true,
+      path: state.sarifFilePath || undefined,
+      options: {},
+    });
+  }
+
+  if (state.selectedScanners.has('github')) {
+    sources.push({
+      id: 'github-code-scanning',
+      type: 'github',
+      name: 'GitHub Code Scanning',
+      enabled: true,
+      token: state.githubToken || undefined,
+      options: {
+        owner: state.githubOrg || undefined,
+        repo: state.githubRepo || undefined,
+      },
+    });
+  }
+
+  if (state.selectedScanners.has('sonarcloud')) {
+    sources.push({
+      id: 'sonarcloud',
+      type: 'sonarcloud',
+      name: 'SonarCloud',
+      enabled: true,
+      project_key: state.sonarcloudProject || undefined,
+      token: state.sonarcloudToken || undefined,
+      options: {},
+    });
+  }
+
+  return sources;
+}
+
+/** Persist the wizard setup state through the local setup API. */
+async function persistSetup(statusContainer: HTMLElement): Promise<boolean> {
+  showLoading(statusContainer, 'Saving scanner configuration...');
+
+  try {
+    const result = await saveSetup({
+      token_storage: state.tokenStorage,
+      sources: buildSetupSources(),
+    });
+    removeLoading(statusContainer);
+    state.setupSaved = true;
+    state.setupStatus = {
+      initialized: true,
+      configured_scanners: result.configured_scanners,
+      total_findings: state.setupStatus?.total_findings ?? 0,
+      mcp_clients_detected: state.setupStatus?.mcp_clients_detected ?? [],
+    };
+
+    const warningText = result.warnings.length > 0 ? ` ${result.warnings.join(' ')}` : '';
+    showStatus(statusContainer, 'success', `Saved setup to ${result.config_path}.${warningText}`);
+    return true;
+  } catch (err) {
+    removeLoading(statusContainer);
+    showStatus(statusContainer, 'error', `Save failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    return false;
+  }
 }
 
 // ── Step: MCP config ─────────────────────────────────────────────────
@@ -576,6 +655,8 @@ function updateConfigPreview(clientName: string): void {
 function initSummaryStep(): void {
   const scannerList = $<HTMLElement>('#summary-scanners');
   const findingsCount = $<HTMLElement>('#summary-findings-count');
+  const scannersCount = $<HTMLElement>('#summary-scanners-count');
+  const clientsCount = $<HTMLElement>('#summary-clients-count');
 
   scannerList.innerHTML = '';
 
@@ -602,6 +683,8 @@ function initSummaryStep(): void {
   // Update findings count
   const totalFindings = state.setupStatus?.total_findings ?? 0;
   findingsCount.textContent = String(totalFindings);
+  scannersCount.textContent = String(state.selectedScanners.size);
+  clientsCount.textContent = String(state.configResults.size);
 
   // Update nav button
   updateNavButtons();
@@ -618,16 +701,33 @@ function initNavigation(): void {
     if (prev) goToStep(prev);
   });
 
-  nextBtn.addEventListener('click', () => {
+  nextBtn.addEventListener('click', async () => {
     if (state.currentStep === 'summary') {
-      // "Start Server" action
       const statusContainer = $<HTMLElement>('#summary-status');
-      showStatus(statusContainer, 'info', 'Starting FindingBridge server... Check your terminal for the MCP connection details.');
+      showLoading(statusContainer, 'Preparing MCP server command...');
+      nextBtn.disabled = true;
+      try {
+        const result = await startServer();
+        removeLoading(statusContainer);
+        showStatus(statusContainer, result.success ? 'success' : 'warning', result.message);
+      } catch (err) {
+        removeLoading(statusContainer);
+        showStatus(statusContainer, 'error', `Unable to prepare server command: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      } finally {
+        nextBtn.disabled = false;
+      }
       return;
     }
 
     const next = getNextStep(state.currentStep);
-    if (next) goToStep(next);
+    if (!next) return;
+
+    if (state.currentStep === 'security-settings') {
+      const saved = await persistSetup($<HTMLElement>('#security-status'));
+      if (!saved) return;
+    }
+
+    goToStep(next);
   });
 }
 

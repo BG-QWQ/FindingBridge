@@ -195,10 +195,10 @@
           </label>
 
           <label class="radio-option">
-            <input type="radio" name="token-storage" value="plaintext">
+            <input type="radio" name="token-storage" value="encrypted-file">
             <div>
-              <div class="radio-label">Plaintext Config</div>
-              <div class="radio-desc">Store tokens in the configuration file. Simpler setup but less secure — tokens are visible to anyone with file access.</div>
+              <div class="radio-label">Development File Fallback</div>
+              <div class="radio-desc">Store raw tokens in FindingBridge's local development credential file with restricted file permissions. Raw tokens are never written to the main config, but this is not recommended for production secrets.</div>
             </div>
           </label>
 
@@ -210,6 +210,7 @@
             </div>
           </label>
         </div>
+        <div id="security-status"></div>
       </section>
 
       <!-- Step 7: MCP config -->
