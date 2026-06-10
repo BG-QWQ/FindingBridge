@@ -129,8 +129,11 @@ async function handleDetectMcpClients(_req: IncomingMessage, res: ServerResponse
     const config = await loadOrCreateConfig();
     const clients = await detectMcpClients(config.config.mcp_client_paths);
     
+    // Only return clients that actually exist on the system
+    const existingClients = clients.filter(c => c.exists);
+    
     sendJson(res, 200, {
-      clients: clients.map(c => ({
+      clients: existingClients.map(c => ({
         name: c.name,
         config_path: c.configPath,
         exists: c.exists,
