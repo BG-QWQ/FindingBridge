@@ -58,7 +58,7 @@ describe('MCP no-data responses', () => {
     expect(data.data_availability).toMatchObject({
       has_findings: false,
       no_data_reason: 'No findings are available in the configured FindingBridge database for this request.',
-      agent_instruction: expect.stringContaining('Do not invent vulnerabilities'),
+      agent_instruction: expect.stringContaining('call findingbridge_sync_sources before concluding there are no findings'),
     });
     expect(data.scope).toMatchObject({
       type: 'global_database',
@@ -76,7 +76,7 @@ describe('MCP no-data responses', () => {
     expect(data.has_findings).toBe(false);
     expect(data.data_availability).toMatchObject({
       has_findings: false,
-      agent_instruction: expect.stringContaining('Do not invent vulnerabilities'),
+      agent_instruction: expect.stringContaining('call findingbridge_sync_sources before concluding there are no findings'),
     });
     expect(data.scope).toMatchObject({
       type: 'global_database',
@@ -112,6 +112,7 @@ describe('MCP no-data responses', () => {
         code: 'source_tool_mismatch',
         observed_tools: ['CodeQL'],
         remediation_steps: expect.arrayContaining([
+          expect.stringContaining('findingbridge_sync_sources'),
           expect.stringContaining('Do not treat the current findings as results from the configured code review platform'),
           expect.stringContaining('findingbridge config show'),
           expect.stringContaining('findingbridge server --db path/to/findingbridge.db'),
@@ -173,6 +174,10 @@ describe('MCP no-data responses', () => {
       sources_failed: 1,
       repository_modified: false,
       database_modified: true,
+      recommended_next_steps: [
+        'Call findingbridge_summary to inspect synchronized finding counts.',
+        'Then call findingbridge_list_findings for the synchronized finding details.',
+      ],
     });
     expect(data.results).toEqual([
       expect.objectContaining({
