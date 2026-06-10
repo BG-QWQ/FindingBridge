@@ -26,6 +26,54 @@ export interface FindingSummary {
   last_seen_at: string;
 }
 
+/** Explain the database scope represented by a read-only MCP response. */
+export interface FindingBridgeDataScope {
+  type: 'global_database';
+  project_scope_supported: false;
+  current_project_matched: false;
+  message: string;
+  agent_instruction: string;
+}
+
+/** Describe whether a response contains usable findings for the requested scope. */
+export interface FindingBridgeDataAvailability {
+  has_findings: boolean;
+  no_data_reason: string | null;
+  agent_instruction: string;
+}
+
+/** Build scope metadata that prevents clients from treating global data as current-project proof. */
+export function globalFindingScope(): FindingBridgeDataScope {
+  return {
+    type: 'global_database',
+    project_scope_supported: false,
+    current_project_matched: false,
+    message:
+      'FindingBridge is returning data from its configured local findings database. It has not verified that this data matches the current repository under review.',
+    agent_instruction:
+      'Do not claim these findings apply to the current project unless the user confirms this FindingBridge database was populated for that project.',
+  };
+}
+
+/** Build explicit data-availability metadata for list and summary responses. */
+export function findingDataAvailability(totalFindings: number): FindingBridgeDataAvailability {
+  if (totalFindings > 0) {
+    return {
+      has_findings: true,
+      no_data_reason: null,
+      agent_instruction:
+        'Report only the findings returned by FindingBridge. Do not add vulnerabilities that are not present in this response.',
+    };
+  }
+
+  return {
+    has_findings: false,
+    no_data_reason: 'No findings are available in the configured FindingBridge database for this request.',
+    agent_instruction:
+      'Report that FindingBridge has no findings for this scope. Do not invent vulnerabilities, file paths, severities, or remediation steps.',
+  };
+}
+
 /**
  * Convert a finding to a redacted response summary.
  *
