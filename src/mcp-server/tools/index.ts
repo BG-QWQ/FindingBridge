@@ -38,8 +38,9 @@ const LOCAL_WRITE_TOOL_ANNOTATIONS: ToolAnnotations = {
 /**
  * Register every FindingBridge MCP tool on the server.
  *
- * All names use the required `findingbridge_` prefix and all annotations mark
- * the tools as read-only so clients understand they only inspect existing data.
+ * All names use the required `findingbridge_` prefix. Read tools are annotated
+ * separately from synchronization tools because sync writes only FindingBridge's
+ * local database while leaving user repositories untouched.
  */
 export function registerFindingBridgeTools(
   server: McpServer,
@@ -50,7 +51,7 @@ export function registerFindingBridgeTools(
     {
       title: 'Summarize Findings',
       description:
-        'Return global FindingBridge database counts with explicit no-data and scope metadata. If no findings are returned, report that fact and do not invent vulnerabilities.',
+        'Return global FindingBridge database counts with explicit no-data and scope metadata. For current or latest scanner platform results, call findingbridge_sync_sources before this tool. If no findings are returned, report that fact and do not invent vulnerabilities.',
       inputSchema: {},
       annotations: { ...READ_ONLY_TOOL_ANNOTATIONS, title: 'Summarize Findings' },
     },
@@ -62,7 +63,7 @@ export function registerFindingBridgeTools(
     {
       title: 'List Findings',
       description:
-        'List normalized scanner findings with filters, pagination, redacted summaries, and explicit no-data metadata. If findings is empty, report that FindingBridge has no findings and do not invent vulnerabilities.',
+        'List normalized scanner findings with filters, pagination, redacted summaries, and explicit no-data metadata. For current or latest scanner platform results, call findingbridge_sync_sources before this tool. If findings is empty, report that FindingBridge has no findings and do not invent vulnerabilities.',
       inputSchema: ListFindingsInputSchema.shape,
       annotations: { ...READ_ONLY_TOOL_ANNOTATIONS, title: 'List Findings' },
     },

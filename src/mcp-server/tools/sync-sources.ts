@@ -30,7 +30,10 @@ export async function syncSourcesTool(
       ...result,
       repository_modified: false,
       database_modified: result.sources_total > 0,
-      recommended_next_steps: ['Call findingbridge_summary or findingbridge_list_findings to inspect synchronized findings.'],
+      recommended_next_steps: [
+        'Call findingbridge_summary to inspect synchronized finding counts.',
+        'Then call findingbridge_list_findings for the synchronized finding details.',
+      ],
     });
   } catch (error: unknown) {
     return toolException(error, [

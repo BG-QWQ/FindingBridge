@@ -84,7 +84,7 @@ export function findingDataAvailability(totalFindings: number): FindingBridgeDat
       has_findings: true,
       no_data_reason: null,
       agent_instruction:
-        'Report only the findings returned by FindingBridge. Do not add vulnerabilities that are not present in this response.',
+        'Report only the findings returned by FindingBridge. Do not add vulnerabilities that are not present in this response. If the user asked for current or latest scanner platform results and you have not already synchronized this turn, call findingbridge_sync_sources before relying on this data.',
     };
   }
 
@@ -92,7 +92,7 @@ export function findingDataAvailability(totalFindings: number): FindingBridgeDat
     has_findings: false,
     no_data_reason: 'No findings are available in the configured FindingBridge database for this request.',
     agent_instruction:
-      'Report that FindingBridge has no findings for this scope. Do not invent vulnerabilities, file paths, severities, or remediation steps.',
+      'Report that FindingBridge has no findings for this scope. If the user asked for current or latest scanner platform results, call findingbridge_sync_sources before concluding there are no findings. Do not invent vulnerabilities, file paths, severities, or remediation steps.',
   };
 }
 
@@ -120,7 +120,8 @@ export function findingProvenanceWarnings(context: FindingBridgeMcpContext): Fin
         configured_sources: configuredSources,
         observed_tools: redactedObservedTools,
         remediation_steps: demoDataRemediationSteps(),
-        agent_instruction: 'Tell the user these are demo findings. Do not present them as code review platform results.',
+        agent_instruction:
+          'Tell the user these are demo findings. Do not present them as code review platform results. Restart without demo mode and call findingbridge_sync_sources before reading current platform findings.',
       },
     ];
   }
@@ -134,7 +135,7 @@ export function findingProvenanceWarnings(context: FindingBridgeMcpContext): Fin
         observed_tools: redactedObservedTools,
         remediation_steps: staleDatabaseRemediationSteps(),
         agent_instruction:
-          'Treat these as local/stale/imported findings until the user confirms which scanner produced them. Tell the user to clear or replace the stale database before importing current scanner results.',
+          'Treat these as local/stale/imported findings until the user confirms which scanner produced them. If configured sources exist, call findingbridge_sync_sources before reporting current platform findings. Tell the user to clear or replace the stale database before importing current scanner results.',
       },
     ];
   }
@@ -154,13 +155,14 @@ export function findingProvenanceWarnings(context: FindingBridgeMcpContext): Fin
       observed_tools: redactedObservedTools,
       remediation_steps: staleDatabaseRemediationSteps(),
       agent_instruction:
-        'Warn the user that these findings may be stale, demo, or manually imported data rather than results from the configured code review platform. Tell them to clear or replace the stale database, then import current platform results before relying on the findings.',
+        'Warn the user that these findings may be stale, demo, or manually imported data rather than results from the configured code review platform. Call findingbridge_sync_sources before reporting current platform findings; if synchronization cannot fix the mismatch, tell them to clear or replace the stale database, then import current platform results before relying on the findings.',
     },
   ];
 }
 
 function staleDatabaseRemediationSteps(): string[] {
   return [
+    'Call `findingbridge_sync_sources` before reading summary or list data when the user asks for current or latest scanner platform results.',
     'Do not treat the current findings as results from the configured code review platform until the database has been rebuilt from that platform.',
     'Find the configured database path with `findingbridge config show`, then back up and delete that stale SQLite database file, or start the MCP server with a fresh database path using `findingbridge server --db path/to/findingbridge.db`.',
     'If the platform can export SARIF, export the latest results and import them with `findingbridge ingest --sarif path/to/results.sarif --db path/to/findingbridge.db` before restarting the MCP server.',
@@ -171,6 +173,7 @@ function staleDatabaseRemediationSteps(): string[] {
 function demoDataRemediationSteps(): string[] {
   return [
     'Restart FindingBridge without `--demo` before using real scanner results.',
+    'Call `findingbridge_sync_sources` after restarting without demo mode and before reading summary or list data.',
     'Use a real configured database, or pass one explicitly with `findingbridge server --db path/to/findingbridge.db`.',
     'Import current scanner results first, for example `findingbridge ingest --sarif path/to/results.sarif --db path/to/findingbridge.db` when the platform can export SARIF.',
   ];
