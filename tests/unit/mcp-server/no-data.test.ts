@@ -5,6 +5,7 @@ import { closeConnection, createConnection } from '@/database/connection.js';
 import { FindingRepository } from '@/database/repositories/finding-repo.js';
 import { RuleRepository } from '@/database/repositories/rule-repo.js';
 import { listFindingsTool } from '@/mcp-server/tools/list-findings.js';
+import { listSourceProjectsTool } from '@/mcp-server/tools/list-source-projects.js';
 import { summaryTool } from '@/mcp-server/tools/summary.js';
 import { syncSourcesTool } from '@/mcp-server/tools/sync-sources.js';
 import type { FindingBridgeToolEnvelope } from '@/mcp-server/tool-result.js';
@@ -184,6 +185,45 @@ describe('MCP no-data responses', () => {
         source_id: 'socket-dev',
         status: 'failed',
         next_steps: [expect.stringContaining('Export the platform results as SARIF')],
+      }),
+    ]);
+  });
+
+  it('returns structured project discovery failures for missing SonarCloud tokens', async () => {
+    context = {
+      ...context,
+      runtime: {
+        databasePath: ':memory:',
+        configuredSources: [
+          {
+            id: 'sonarcloud',
+            type: 'sonarcloud',
+            enabled: true,
+            options: {},
+          },
+        ],
+        tokenStorage: 'keychain',
+        demoMode: false,
+      },
+    };
+
+    const data = unwrapData(await listSourceProjectsTool(context, { max_pages: 10 }));
+
+    expect(data).toMatchObject({
+      sources_total: 1,
+      sources_failed: 1,
+      repository_modified: false,
+      database_modified: false,
+      recommended_next_steps: [
+        'Choose the project key that matches the current repository.',
+        'Call findingbridge_sync_sources with project_keys: { [source_id]: selected_project_key } to sync without editing configuration.',
+      ],
+    });
+    expect(data.results).toEqual([
+      expect.objectContaining({
+        source_id: 'sonarcloud',
+        status: 'failed',
+        next_steps: [expect.stringContaining('findingbridge config set-token sonarcloud')],
       }),
     ]);
   });

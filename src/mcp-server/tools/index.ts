@@ -6,6 +6,7 @@ import {
   ExplainFindingInputSchema,
   GenerateReportInputSchema,
   GetFindingDetailInputSchema,
+  ListSourceProjectsInputSchema,
   ListFindingsInputSchema,
   PrioritizeFindingsInputSchema,
   SuggestFixInputSchema,
@@ -16,6 +17,7 @@ import { explainFindingTool } from './explain-finding.js';
 import { generateReportTool } from './generate-report.js';
 import { getFindingDetailTool } from './get-finding-detail.js';
 import { listFindingsTool } from './list-findings.js';
+import { listSourceProjectsTool } from './list-source-projects.js';
 import { prioritizeFindingsTool } from './prioritize-findings.js';
 import { suggestFixTool } from './suggest-fix.js';
 import { summaryTool } from './summary.js';
@@ -149,11 +151,23 @@ export function registerFindingBridgeTools(
   );
 
   server.registerTool(
+    'findingbridge_list_source_projects',
+    {
+      title: 'List Source Projects',
+      description:
+        'List projects visible to configured scanner source credentials, such as SonarCloud project keys. Use this when synchronization needs a project_key before reading current platform findings.',
+      inputSchema: ListSourceProjectsInputSchema.shape,
+      annotations: { ...READ_ONLY_TOOL_ANNOTATIONS, title: 'List Source Projects', openWorldHint: true },
+    },
+    async (input) => listSourceProjectsTool(context, ListSourceProjectsInputSchema.parse(input))
+  );
+
+  server.registerTool(
     'findingbridge_sync_sources',
     {
       title: 'Sync Scanner Sources',
       description:
-        'Synchronize configured scanner sources into the local FindingBridge database. This may call scanner APIs and write findings to FindingBridge storage, but it never modifies user repositories.',
+        'Synchronize configured scanner sources into the local FindingBridge database. For SonarCloud sources missing project_key, pass a per-call project_keys[source_id] override discovered by findingbridge_list_source_projects; overrides are not persisted. This may call scanner APIs and write findings to FindingBridge storage, but it never modifies user repositories.',
       inputSchema: SyncSourcesInputSchema.shape,
       annotations: { ...LOCAL_WRITE_TOOL_ANNOTATIONS, title: 'Sync Scanner Sources' },
     },
