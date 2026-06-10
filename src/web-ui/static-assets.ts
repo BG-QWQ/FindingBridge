@@ -3,6 +3,7 @@ import { join, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'http';
 import { logger } from '../utils/logger.js';
+import { handleApiRequest } from './api-handlers.js';
 
 /** MIME type map for static file serving */
 const CONTENT_TYPES: Record<string, string> = {
@@ -89,6 +90,12 @@ export async function startStaticServer(options: StaticServerOptions = {}): Prom
 
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const urlPath = req.url?.split('?')[0] ?? '/';
+
+    // Handle API requests first
+    if (urlPath.startsWith('/api/')) {
+      const handled = await handleApiRequest(req, res);
+      if (handled) return;
+    }
 
     const result = await readStaticFile(rootDir, urlPath);
     if (result) {

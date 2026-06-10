@@ -33,12 +33,27 @@ export class SonarCloudAdapter implements BaseAdapter {
   async testConnection(): Promise<ConnectionTestResult> {
     try {
       await this.client.validateToken();
-      const projects = await this.client.listProjects();
-      return {
-        valid: true,
-        reason: `SonarCloud token validated and ${projects.total} project(s) are visible.`,
-        projects_found: projects.total,
-      };
+      
+      // Try to list projects, but if organization is missing, just report token is valid
+      try {
+        const projects = await this.client.listProjects();
+        return {
+          valid: true,
+          reason: `SonarCloud token validated and ${projects.total} project(s) are visible.`,
+          projects_found: projects.total,
+        };
+      } catch (listError: unknown) {
+        const message = listError instanceof Error ? listError.message : String(listError);
+        // If the error is about missing organization, return partial success
+        if (message.includes('organization') || message.includes('Organization')) {
+          return {
+            valid: true,
+            reason: 'SonarCloud token validated successfully.',
+            suggestion: 'Provide an organization to list projects.',
+          };
+        }
+        throw listError;
+      }
     } catch (error: unknown) {
       const adapterError = toAdapterError(error, {
         code: ErrorCodes.ADAPTER_CONNECTION_FAILED,

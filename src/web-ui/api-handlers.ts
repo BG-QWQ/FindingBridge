@@ -1,0 +1,233 @@
+import { type IncomingMessage, type ServerResponse } from 'http';
+import { logger } from '../utils/logger.js';
+import { SonarCloudAdapter } from '../adapters/sonarcloud/sonarcloud-adapter.js';
+import { GitHubAdapter } from '../adapters/github/github-adapter.js';
+import { SarifAdapter } from '../adapters/sarif/sarif-adapter.js';
+import { detectMcpClients } from '../config/mcp-client-detector.js';
+import { writeMcpClientConfig } from '../config/mcp-config-writer.js';
+import { loadOrCreateConfig } from '../config/config.js';
+import type { ScannerType } from './setup-api.js';
+
+/** Parse JSON body from incoming request */
+async function parseBody<T>(req: IncomingMessage): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(body) as T);
+      } catch (err) {
+        reject(new Error('Invalid JSON body'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+/** Send JSON response */
+function sendJson(res: ServerResponse, status: number, data: unknown): void {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(data));
+}
+
+/** Send error response */
+function sendError(res: ServerResponse, status: number, message: string): void {
+  sendJson(res, status, { error: message });
+}
+
+/** CORS headers for browser requests */
+function setCorsHeaders(res: ServerResponse): void {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+/** Handle GET /api/setup/status */
+async function handleGetStatus(_req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const config = await loadOrCreateConfig();
+    const mcpClients = await detectMcpClients(config.config.mcp_client_paths);
+    
+    const configuredScanners: ScannerType[] = [];
+    for (const source of config.config.sources) {
+      if (source.type === 'sarif' || source.type === 'github' || source.type === 'sonarcloud') {
+        configuredScanners.push(source.type as ScannerType);
+      }
+    }
+
+    sendJson(res, 200, {
+      initialized: true,
+      configured_scanners: configuredScanners,
+      total_findings: 0,
+      mcp_clients_detected: mcpClients.filter(c => c.exists).map(c => c.name),
+    });
+  } catch (err) {
+    logger.error('Setup status error', { error: String(err) });
+    sendError(res, 500, 'Failed to get setup status');
+  }
+}
+
+/** Handle POST /api/setup/test-connection */
+async function handleTestConnection(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const body = await parseBody<{ scanner_type: ScannerType; config: Record<string, unknown> }>(req);
+    const { scanner_type, config } = body;
+
+    let result;
+    switch (scanner_type) {
+      case 'sonarcloud': {
+        const token = String(config.token || '');
+        const organization = config.organization ? String(config.organization) : undefined;
+        
+        if (!token) {
+          sendError(res, 400, 'SonarCloud token is required');
+          return;
+        }
+        
+        // If no organization provided, try to validate token only
+        if (!organization) {
+          const client = new SonarCloudAdapter({ token });
+          result = await client.testConnection();
+        } else {
+          const adapter = new SonarCloudAdapter({ token, organization });
+          result = await adapter.testConnection();
+        }
+        break;
+      }
+      case 'github': {
+        const adapter = new GitHubAdapter({
+          token: String(config.token || ''),
+          owner: String(config.owner || config.org || ''),
+          repo: String(config.repo || ''),
+        });
+        result = await adapter.testConnection();
+        break;
+      }
+      case 'sarif': {
+        const adapter = new SarifAdapter({
+          filePath: String(config.file_path || config.path || ''),
+        });
+        result = await adapter.testConnection();
+        break;
+      }
+      default:
+        sendError(res, 400, `Unknown scanner type: ${scanner_type}`);
+        return;
+    }
+
+    sendJson(res, 200, result);
+  } catch (err) {
+    logger.error('Connection test error', { error: String(err) });
+    const message = err instanceof Error ? err.message : 'Connection test failed';
+    sendError(res, 500, message);
+  }
+}
+
+/** Handle POST /api/setup/detect-mcp-clients */
+async function handleDetectMcpClients(_req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const config = await loadOrCreateConfig();
+    const clients = await detectMcpClients(config.config.mcp_client_paths);
+    
+    sendJson(res, 200, {
+      clients: clients.map(c => ({
+        name: c.name,
+        config_path: c.configPath,
+        exists: c.exists,
+      })),
+    });
+  } catch (err) {
+    logger.error('MCP client detection error', { error: String(err) });
+    sendError(res, 500, 'Failed to detect MCP clients');
+  }
+}
+
+/** Handle POST /api/setup/write-config */
+async function handleWriteConfig(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const body = await parseBody<{ client_name: string; config: Record<string, unknown>; backup?: boolean }>(req);
+    const { client_name } = body;
+
+    const loadedConfig = await loadOrCreateConfig();
+    const clients = await detectMcpClients(loadedConfig.config.mcp_client_paths);
+    const client = clients.find(c => c.name === client_name);
+
+    if (!client) {
+      sendError(res, 404, `MCP client '${client_name}' not found`);
+      return;
+    }
+
+    const result = await writeMcpClientConfig({
+      client,
+      command: process.execPath,
+      args: [process.argv[1] ?? 'findingbridge', 'server'],
+    });
+
+    sendJson(res, 200, {
+      success: true,
+      config_path: result.configPath,
+      backup_path: result.backupPath,
+      message: 'Configuration written successfully',
+    });
+  } catch (err) {
+    logger.error('Write config error', { error: String(err) });
+    sendError(res, 500, 'Failed to write configuration');
+  }
+}
+
+/** Handle GET /api/setup/health */
+async function handleHealth(_req: IncomingMessage, res: ServerResponse): Promise<void> {
+  sendJson(res, 200, {
+    status: 'ok',
+    version: '0.1.0',
+    uptime: process.uptime(),
+  });
+}
+
+/** Route API requests */
+export async function handleApiRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  const url = req.url?.split('?')[0] ?? '';
+  const method = req.method ?? 'GET';
+
+  if (!url.startsWith('/api/')) {
+    return false;
+  }
+
+  setCorsHeaders(res);
+
+  if (method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return true;
+  }
+
+  try {
+    if (url === '/api/setup/status' && method === 'GET') {
+      await handleGetStatus(req, res);
+      return true;
+    }
+    if (url === '/api/setup/test-connection' && method === 'POST') {
+      await handleTestConnection(req, res);
+      return true;
+    }
+    if (url === '/api/setup/detect-mcp-clients' && method === 'POST') {
+      await handleDetectMcpClients(req, res);
+      return true;
+    }
+    if (url === '/api/setup/write-config' && method === 'POST') {
+      await handleWriteConfig(req, res);
+      return true;
+    }
+    if (url === '/api/setup/health' && method === 'GET') {
+      await handleHealth(req, res);
+      return true;
+    }
+
+    sendError(res, 404, `API endpoint not found: ${method} ${url}`);
+    return true;
+  } catch (err) {
+    logger.error('API request error', { error: String(err), url, method });
+    sendError(res, 500, 'Internal server error');
+    return true;
+  }
+}
