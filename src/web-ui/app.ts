@@ -490,7 +490,7 @@ function initMcpConfigStep(): void {
     writeBtn.disabled = true;
 
     try {
-      const config = buildMcpConfig();
+      const config = buildMcpConfig(selectedClient.value);
       const result = await writeConfig(selectedClient.value, config, true);
       state.configResults.set(selectedClient.value, result);
       removeLoading(statusContainer);
@@ -513,25 +513,54 @@ function initMcpConfigStep(): void {
   });
 }
 
-/** Build MCP server config from wizard state */
-function buildMcpConfig(): Record<string, unknown> {
-  const mcpServers: Record<string, unknown> = {};
+/** Build MCP server config for a specific client */
+function buildMcpConfig(clientName: string): Record<string, unknown> {
+  // Base server config
+  const serverConfig = {
+    command: 'findingbridge',
+    args: ['server'],
+    env: {},
+  };
 
-  if (state.selectedScanners.has('sarif') || state.selectedScanners.has('github') || state.selectedScanners.has('sonarcloud')) {
-    mcpServers.findingbridge = {
-      command: 'findingbridge',
-      args: ['server'],
-      env: {},
-    };
+  // Generate client-specific format
+  switch (clientName.toLowerCase()) {
+    case 'vscode': {
+      return {
+        servers: {
+          findingbridge: {
+            type: 'stdio',
+            ...serverConfig,
+          },
+        },
+      };
+    }
+    case 'opencode': {
+      return {
+        mcp: {
+          findingbridge: {
+            type: 'local',
+            command: ['findingbridge', 'server'],
+            enabled: true,
+            environment: {},
+          },
+        },
+      };
+    }
+    default: {
+      // Claude Desktop, Cursor, Claude Code, Windsurf, Cline, and others
+      return {
+        mcpServers: {
+          findingbridge: serverConfig,
+        },
+      };
+    }
   }
-
-  return { mcpServers };
 }
 
 /** Update the config preview pane */
 function updateConfigPreview(clientName: string): void {
   const configPreview = $<HTMLElement>('#config-preview-content');
-  const config = buildMcpConfig();
+  const config = buildMcpConfig(clientName);
 
   // Add client-specific metadata
   const fullConfig = {

@@ -54,19 +54,23 @@ export function getCandidateMcpClients(): DetectedMcpClient[] {
   ];
 }
 
-/** Detect installed MCP client config files without creating or modifying them. */
+/** Detect installed MCP client config files without creating or modifying them.
+ * Only returns clients that actually exist on the system. */
 export async function detectMcpClients(overrides?: Partial<Record<McpClientId, string>>): Promise<DetectedMcpClient[]> {
   const candidates = getCandidateMcpClients().map((client) => ({
     ...client,
     configPath: overrides?.[client.id] ?? client.configPath,
   }));
 
-  return Promise.all(
+  const detected = await Promise.all(
     candidates.map(async (client) => ({
       ...client,
       exists: await pathExists(client.configPath),
     }))
   );
+
+  // Only return clients that actually exist
+  return detected.filter((client) => client.exists);
 }
 
 async function pathExists(path: string): Promise<boolean> {
