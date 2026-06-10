@@ -47,6 +47,7 @@ interface WizardState {
   githubOrg: string;
   githubRepo: string;
   sonarcloudToken: string;
+  sonarcloudOrganization: string;
   sonarcloudProject: string;
   tokenStorage: TokenStorage;
   connectionResults: Map<ScannerType, TestConnectionResponse>;
@@ -64,6 +65,7 @@ const state: WizardState = {
   githubOrg: '',
   githubRepo: '',
   sonarcloudToken: '',
+  sonarcloudOrganization: '',
   sonarcloudProject: '',
   tokenStorage: 'keychain',
   connectionResults: new Map(),
@@ -356,10 +358,12 @@ function initGithubConfigStep(): void {
 
 function initSonarcloudConfigStep(): void {
   const tokenInput = $<HTMLInputElement>('#sonarcloud-token');
+  const organizationInput = $<HTMLInputElement>('#sonarcloud-organization');
   const projectSelect = $<HTMLSelectElement>('#sonarcloud-project');
   const statusContainer = $<HTMLElement>('#sonarcloud-status');
 
   tokenInput.value = state.sonarcloudToken;
+  organizationInput.value = state.sonarcloudOrganization;
 
   // Toggle password visibility
   const toggleBtn = $<HTMLButtonElement>('#toggle-sonarcloud-token');
@@ -373,11 +377,20 @@ function initSonarcloudConfigStep(): void {
     state.sonarcloudToken = tokenInput.value.trim();
   });
 
+  organizationInput.addEventListener('input', () => {
+    state.sonarcloudOrganization = organizationInput.value.trim();
+  });
+
   // Test connection
   const testBtn = $<HTMLButtonElement>('#test-sonarcloud-connection');
   testBtn.addEventListener('click', async () => {
     if (!state.sonarcloudToken) {
       showStatus(statusContainer, 'error', 'Please enter a SonarCloud token first.');
+      return;
+    }
+
+    if (!state.sonarcloudOrganization) {
+      showStatus(statusContainer, 'error', 'Please enter a SonarCloud organization key before loading projects.');
       return;
     }
 
@@ -387,6 +400,7 @@ function initSonarcloudConfigStep(): void {
     try {
       const result = await testConnection('sonarcloud', {
         token: state.sonarcloudToken,
+        organization: state.sonarcloudOrganization,
       });
       removeLoading(statusContainer);
 
@@ -471,7 +485,9 @@ function buildSetupSources(): SaveSetupSource[] {
       enabled: true,
       project_key: state.sonarcloudProject || undefined,
       token: state.sonarcloudToken || undefined,
-      options: {},
+      options: {
+        organization: state.sonarcloudOrganization || undefined,
+      },
     });
   }
 

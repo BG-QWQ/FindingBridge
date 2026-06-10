@@ -166,6 +166,12 @@
         </div>
 
         <div class="form-group">
+          <label for="sonarcloud-organization">Organization Key</label>
+          <input type="text" id="sonarcloud-organization" placeholder="your-organization-key">
+          <p class="form-hint">Required to list SonarCloud projects. Find it in your SonarCloud organization URL or organization settings.</p>
+        </div>
+
+        <div class="form-group">
           <button type="button" class="btn btn-secondary" id="test-sonarcloud-connection">
             Test Connection
           </button>
@@ -175,7 +181,7 @@
         <div class="form-group">
           <label for="sonarcloud-project">Project Key</label>
           <select id="sonarcloud-project">
-            <option value="">Test connection to load projects</option>
+            <option value="">Enter organization and test connection to load projects</option>
           </select>
         </div>
       </section>
