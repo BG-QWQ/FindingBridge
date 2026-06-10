@@ -2,7 +2,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { FindingBridgeMcpContext } from '../context.js';
 import type { ListFindingsInput } from '../tool-schemas.js';
 import { toolException, toolSuccess } from '../tool-result.js';
-import { findingDataAvailability, globalFindingScope, summarizeFinding } from './shared.js';
+import { findingDataAvailability, findingProvenanceWarnings, globalFindingScope, summarizeFinding } from './shared.js';
 
 /**
  * List normalized findings with scanner-neutral filters.
@@ -32,6 +32,7 @@ export function listFindingsTool(
       has_findings: result.total > 0,
       data_availability: findingDataAvailability(result.total),
       scope: globalFindingScope(),
+      provenance_warnings: findingProvenanceWarnings(context),
       pagination: {
         total: result.total,
         limit: input.limit,

@@ -1,7 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { FindingBridgeMcpContext } from '../context.js';
 import { toolException, toolSuccess } from '../tool-result.js';
-import { findingDataAvailability, globalFindingScope } from './shared.js';
+import { findingDataAvailability, findingProvenanceWarnings, globalFindingScope } from './shared.js';
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
 
@@ -23,6 +23,7 @@ export function summaryTool(context: FindingBridgeMcpContext): CallToolResult {
       has_findings: total > 0,
       data_availability: findingDataAvailability(total),
       scope: globalFindingScope(),
+      provenance_warnings: findingProvenanceWarnings(context),
     });
   } catch (error: unknown) {
     return toolException(error, [

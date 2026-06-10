@@ -1,4 +1,5 @@
 import type { Finding } from '../../core/models/finding.js';
+import { getSourceDisplayName } from '../../core/normalization/source-metadata.js';
 import { redactCodeSnippet, redactSecrets } from '../../utils/redaction.js';
 import type { FindingBridgeMcpContext } from '../context.js';
 
@@ -42,6 +43,26 @@ export interface FindingBridgeDataAvailability {
   agent_instruction: string;
 }
 
+/** Warn callers when stored findings do not match the configured scanner sources. */
+export interface FindingBridgeProvenanceWarning {
+  code: 'demo_data' | 'source_tool_mismatch' | 'unconfigured_findings';
+  message: string;
+  configured_sources: Array<{ id: string; type: string; expected_tools: string[] }>;
+  observed_tools: string[];
+  agent_instruction: string;
+}
+
+const SOURCE_TOOL_ALIASES: Record<string, string[]> = {
+  sarif: ['SARIF'],
+  github: ['GitHub Code Scanning', 'CodeQL'],
+  sonarcloud: ['SonarCloud'],
+  socket: ['Socket.dev'],
+  snyk: ['Snyk'],
+  semgrep: ['Semgrep'],
+  trivy: ['Trivy'],
+  sbom: ['SBOM'],
+};
+
 /** Build scope metadata that prevents clients from treating global data as current-project proof. */
 export function globalFindingScope(): FindingBridgeDataScope {
   return {
@@ -72,6 +93,74 @@ export function findingDataAvailability(totalFindings: number): FindingBridgeDat
     agent_instruction:
       'Report that FindingBridge has no findings for this scope. Do not invent vulnerabilities, file paths, severities, or remediation steps.',
   };
+}
+
+/** Detect demo, stale, or unconfigured finding provenance for MCP responses. */
+export function findingProvenanceWarnings(context: FindingBridgeMcpContext): FindingBridgeProvenanceWarning[] {
+  const observedTools = context.findings.listTools();
+  const redactedObservedTools = observedTools.map((tool) => redactSecrets(tool));
+  if (observedTools.length === 0) {
+    return [];
+  }
+
+  const configuredSources = context.runtime.configuredSources
+    .filter((source) => source.enabled)
+    .map((source) => ({
+      id: redactSecrets(source.id),
+      type: source.type,
+      expected_tools: expectedToolsForSource(source.type),
+    }));
+
+  if (context.runtime.demoMode) {
+    return [
+      {
+        code: 'demo_data',
+        message: 'This MCP server is running in demo mode, so findings come from bundled sample data.',
+        configured_sources: configuredSources,
+        observed_tools: redactedObservedTools,
+        agent_instruction: 'Tell the user these are demo findings. Do not present them as code review platform results.',
+      },
+    ];
+  }
+
+  if (configuredSources.length === 0) {
+    return [
+      {
+        code: 'unconfigured_findings',
+        message: 'The database contains findings, but no enabled scanner sources are configured for this MCP server.',
+        configured_sources: configuredSources,
+        observed_tools: redactedObservedTools,
+        agent_instruction:
+          'Treat these as local/stale/imported findings until the user confirms which scanner produced them.',
+      },
+    ];
+  }
+
+  const expected = new Set(configuredSources.flatMap((source) => source.expected_tools.map(normalizeToolName)));
+  const mismatchedTools = observedTools.filter((tool) => !expected.has(normalizeToolName(tool)));
+  if (mismatchedTools.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      code: 'source_tool_mismatch',
+      message:
+        'The database contains findings from scanner tools that do not match the currently configured FindingBridge sources.',
+      configured_sources: configuredSources,
+      observed_tools: redactedObservedTools,
+      agent_instruction:
+        'Warn the user that these findings may be stale, demo, or manually imported data rather than results from the configured code review platform.',
+    },
+  ];
+}
+
+function expectedToolsForSource(sourceType: string): string[] {
+  return SOURCE_TOOL_ALIASES[sourceType] ?? [getSourceDisplayName(sourceType as never), sourceType];
+}
+
+function normalizeToolName(toolName: string): string {
+  return toolName.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 /**
