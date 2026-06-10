@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { createConnection } from '../database/connection.js';
 import { FindingRepository } from '../database/repositories/finding-repo.js';
 import { RuleRepository } from '../database/repositories/rule-repo.js';
+import type { SourceConfig } from '../config/validation.js';
 
 /**
  * Hold shared dependencies for MCP tool handlers.
@@ -13,6 +14,14 @@ export interface FindingBridgeMcpContext {
   db: Database.Database;
   findings: FindingRepository;
   rules: RuleRepository;
+  runtime: FindingBridgeRuntimeMetadata;
+}
+
+/** Runtime metadata needed to explain which local data source backs MCP responses. */
+export interface FindingBridgeRuntimeMetadata {
+  databasePath?: string;
+  configuredSources: SourceConfig[];
+  demoMode: boolean;
 }
 
 /**
@@ -24,6 +33,8 @@ export interface FindingBridgeMcpContext {
 export interface CreateFindingBridgeMcpContextOptions {
   db?: Database.Database;
   dbPath?: string;
+  configuredSources?: SourceConfig[];
+  demoMode?: boolean;
 }
 
 /**
@@ -41,5 +52,10 @@ export function createFindingBridgeMcpContext(
     db,
     findings: new FindingRepository(db),
     rules: new RuleRepository(db),
+    runtime: {
+      databasePath: options.dbPath,
+      configuredSources: options.configuredSources ?? [],
+      demoMode: options.demoMode ?? false,
+    },
   };
 }

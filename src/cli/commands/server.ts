@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { loadOrCreateConfig } from '../../config/config.js';
+import type { SourceConfig } from '../../config/validation.js';
 import { logger } from '../../utils/logger.js';
 import { runDemoMode } from '../demo-mode.js';
 import { startFindingBridgeStdioServer } from '../../mcp-server/stdio.js';
@@ -28,12 +29,16 @@ export function createServerCommand(): Command {
       if (!dbPath) {
         throw new Error('Database path is not configured. Run findingbridge init or pass --db.');
       }
-      await startMcpServer(dbPath);
+      await startMcpServer(dbPath, loadedConfig.config.sources);
     });
 }
 
 /** Start a stdio MCP server backed by the configured SQLite database. */
-export async function startMcpServer(dbPath: string): Promise<void> {
+export async function startMcpServer(
+  dbPath: string,
+  configuredSources: SourceConfig[] = [],
+  demoMode = false
+): Promise<void> {
   logger.info('Starting FindingBridge MCP server over stdio.', { db_path: dbPath });
-  await startFindingBridgeStdioServer(dbPath);
+  await startFindingBridgeStdioServer({ dbPath, configuredSources, demoMode });
 }
