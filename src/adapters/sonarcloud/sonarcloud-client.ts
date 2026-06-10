@@ -50,13 +50,13 @@ export class SonarCloudClient {
     return true;
   }
 
-  /** List projects visible to the token using /api/projects/search pagination. */
+  /** List projects visible to the token using /api/components/search pagination. */
   async listProjects(page = 1): Promise<{ projects: SonarCloudProject[]; total: number; hasMore: boolean }> {
-    const params = new URLSearchParams({ p: String(page), ps: String(PAGE_SIZE) });
+    const params = new URLSearchParams({ p: String(page), ps: String(PAGE_SIZE), qualifiers: 'TRK' });
     if (this.organization) {
       params.set('organization', this.organization);
     }
-    const response = await this.request(`/api/projects/search?${params.toString()}`);
+    const response = await this.request(`/api/components/search?${params.toString()}`);
     const body = await response.json() as unknown;
     const parsed = SonarCloudProjectSearchSchema.parse(body);
     return {

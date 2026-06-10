@@ -15,6 +15,9 @@ export const SonarCloudProjectSchema = z
     qualifier: z.string().optional(),
     visibility: z.string().optional(),
     lastAnalysisDate: z.string().optional(),
+    organization: z.string().optional(),
+    project: z.string().optional(),
+    analysisDate: z.string().optional(),
   })
   .passthrough();
 
