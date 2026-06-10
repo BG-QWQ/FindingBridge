@@ -2,13 +2,16 @@ import { access } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
 
-export type McpClientId = 'claude_desktop' | 'cursor' | 'vscode';
+export type McpClientId = 'claude_desktop' | 'claude_code' | 'cursor' | 'vscode' | 'opencode' | 'windsurf' | 'cline';
+
+export type McpClientFormat = 'mcpServers' | 'servers' | 'mcp' | 'context_servers';
 
 export type DetectedMcpClient = {
   id: McpClientId;
   name: string;
   configPath: string;
   exists: boolean;
+  format: McpClientFormat;
 };
 
 /** Return common MCP client configuration paths for the current platform. */
@@ -18,24 +21,36 @@ export function getCandidateMcpClients(): DetectedMcpClient[] {
 
   if (process.platform === 'win32') {
     return [
-      { id: 'claude_desktop', name: 'Claude Desktop', configPath: join(appData, 'Claude', 'claude_desktop_config.json'), exists: false },
-      { id: 'cursor', name: 'Cursor', configPath: join(appData, 'Cursor', 'User', 'mcp.json'), exists: false },
-      { id: 'vscode', name: 'VS Code', configPath: join(appData, 'Code', 'User', 'mcp.json'), exists: false },
+      { id: 'claude_desktop', name: 'Claude Desktop', configPath: join(appData, 'Claude', 'claude_desktop_config.json'), exists: false, format: 'mcpServers' },
+      { id: 'claude_code', name: 'Claude Code', configPath: join(home, '.claude.json'), exists: false, format: 'mcpServers' },
+      { id: 'cursor', name: 'Cursor', configPath: join(home, '.cursor', 'mcp.json'), exists: false, format: 'mcpServers' },
+      { id: 'vscode', name: 'VS Code', configPath: join(home, '.vscode', 'mcp.json'), exists: false, format: 'servers' },
+      { id: 'opencode', name: 'OpenCode', configPath: join(home, '.config', 'opencode', 'opencode.json'), exists: false, format: 'mcp' },
+      { id: 'windsurf', name: 'Windsurf', configPath: join(home, '.codeium', 'windsurf', 'mcp_config.json'), exists: false, format: 'mcpServers' },
+      { id: 'cline', name: 'Cline', configPath: join(appData, 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json'), exists: false, format: 'mcpServers' },
     ];
   }
 
   if (process.platform === 'darwin') {
     return [
-      { id: 'claude_desktop', name: 'Claude Desktop', configPath: join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'), exists: false },
-      { id: 'cursor', name: 'Cursor', configPath: join(home, 'Library', 'Application Support', 'Cursor', 'User', 'mcp.json'), exists: false },
-      { id: 'vscode', name: 'VS Code', configPath: join(home, 'Library', 'Application Support', 'Code', 'User', 'mcp.json'), exists: false },
+      { id: 'claude_desktop', name: 'Claude Desktop', configPath: join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'), exists: false, format: 'mcpServers' },
+      { id: 'claude_code', name: 'Claude Code', configPath: join(home, '.claude.json'), exists: false, format: 'mcpServers' },
+      { id: 'cursor', name: 'Cursor', configPath: join(home, '.cursor', 'mcp.json'), exists: false, format: 'mcpServers' },
+      { id: 'vscode', name: 'VS Code', configPath: join(home, '.vscode', 'mcp.json'), exists: false, format: 'servers' },
+      { id: 'opencode', name: 'OpenCode', configPath: join(home, '.config', 'opencode', 'opencode.json'), exists: false, format: 'mcp' },
+      { id: 'windsurf', name: 'Windsurf', configPath: join(home, '.codeium', 'windsurf', 'mcp_config.json'), exists: false, format: 'mcpServers' },
+      { id: 'cline', name: 'Cline', configPath: join(home, 'Library', 'Application Support', 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json'), exists: false, format: 'mcpServers' },
     ];
   }
 
   return [
-    { id: 'claude_desktop', name: 'Claude Desktop', configPath: join(home, '.config', 'Claude', 'claude_desktop_config.json'), exists: false },
-    { id: 'cursor', name: 'Cursor', configPath: join(home, '.config', 'Cursor', 'User', 'mcp.json'), exists: false },
-    { id: 'vscode', name: 'VS Code', configPath: join(home, '.config', 'Code', 'User', 'mcp.json'), exists: false },
+    { id: 'claude_desktop', name: 'Claude Desktop', configPath: join(home, '.config', 'Claude', 'claude_desktop_config.json'), exists: false, format: 'mcpServers' },
+    { id: 'claude_code', name: 'Claude Code', configPath: join(home, '.claude.json'), exists: false, format: 'mcpServers' },
+    { id: 'cursor', name: 'Cursor', configPath: join(home, '.cursor', 'mcp.json'), exists: false, format: 'mcpServers' },
+    { id: 'vscode', name: 'VS Code', configPath: join(home, '.vscode', 'mcp.json'), exists: false, format: 'servers' },
+    { id: 'opencode', name: 'OpenCode', configPath: join(home, '.config', 'opencode', 'opencode.json'), exists: false, format: 'mcp' },
+    { id: 'windsurf', name: 'Windsurf', configPath: join(home, '.codeium', 'windsurf', 'mcp_config.json'), exists: false, format: 'mcpServers' },
+    { id: 'cline', name: 'Cline', configPath: join(home, '.config', 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json'), exists: false, format: 'mcpServers' },
   ];
 }
 
