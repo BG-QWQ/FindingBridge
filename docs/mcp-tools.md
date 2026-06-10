@@ -2,6 +2,8 @@
 
 All tools use the `findingbridge_` prefix and are read-only (`readOnlyHint: true`).
 
+`findingbridge_sync_sources` writes scanner findings to FindingBridge's local database only; it never modifies user repositories.
+
 ## findingbridge_list_findings
 
 List findings with optional filtering and pagination.
@@ -245,6 +247,79 @@ Generate a security findings report.
   }
 }
 ```
+
+## findingbridge_list_source_projects
+
+List scanner projects visible to configured source credentials. Use this before
+`findingbridge_sync_sources` when a source, such as SonarCloud, needs a project
+key.
+
+### Input Schema
+
+```json
+{
+  "source_ids": ["sonarcloud"],
+  "organizations": {
+    "sonarcloud": "your-organization-key"
+  },
+  "max_pages": 10
+}
+```
+
+For SonarCloud, project discovery is organization-scoped. Provide
+`organizations[source_id]` when the source configuration does not already include
+an organization.
+
+### Output Schema
+
+```json
+{
+  "sources_total": 1,
+  "sources_succeeded": 1,
+  "results": [
+    {
+      "source_id": "sonarcloud",
+      "status": "success",
+      "projects": [
+        {
+          "key": "org_project",
+          "name": "Project Name",
+          "qualifier": "TRK",
+          "visibility": "private",
+          "organization": "your-organization-key"
+        }
+      ],
+      "next_steps": [
+        "Choose the project key that matches the current repository before running findingbridge_sync_sources."
+      ]
+    }
+  ],
+  "repository_modified": false,
+  "database_modified": false
+}
+```
+
+## findingbridge_sync_sources
+
+Synchronize configured scanner sources into the local FindingBridge database.
+Call this before reading current scanner platform results with
+`findingbridge_summary` or `findingbridge_list_findings`.
+
+### Input Schema
+
+```json
+{
+  "source_ids": ["sonarcloud"],
+  "project_keys": {
+    "sonarcloud": "org_project"
+  },
+  "max_pages": 20
+}
+```
+
+For SonarCloud sources without a saved `project_key`, first call
+`findingbridge_list_source_projects`, then pass the selected project key as
+`project_keys[source_id]`. Per-call overrides are not persisted.
 
 ## Error Handling
 
