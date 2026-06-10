@@ -13,7 +13,7 @@
 
 ```bash
 findingbridge setup
-# Select "SonarCloud" and paste token
+# Select "SonarCloud", paste token, and enter the SonarCloud organization key
 ```
 
 Or set directly:
@@ -26,8 +26,19 @@ findingbridge config set-token sonarcloud
 
 FindingBridge validates your token by:
 1. Calling `/api/authentication/validate`
-2. Listing projects via `/api/projects/search`
+2. Listing organization projects via `/api/components/search?organization=<org>&qualifiers=TRK`
 3. Testing issue access via `/api/issues/search`
+
+Project listing is organization-scoped. If the source configuration does not
+include `organization`, MCP agents can pass it per call:
+
+```json
+{
+  "organizations": {
+    "sonarcloud": "your-organization-key"
+  }
+}
+```
 
 ## Data Retrieved
 
@@ -57,7 +68,8 @@ FindingBridge validates your token by:
 | Error | Solution |
 |-------|----------|
 | Invalid token | Generate new token in SonarCloud settings |
-| No projects found | Check token belongs to correct organization |
+| Missing organization | Enter the SonarCloud organization key in setup, or pass `organizations[source_id]` to `findingbridge_list_source_projects` |
+| No projects found | Check token belongs to the selected organization and has Browse permission |
 | Insufficient permissions | Use User Token (not Project Token) |
 
 ## Privacy

@@ -40,8 +40,9 @@ Double-click the executable (or run in terminal). The setup wizard will automati
 
 1. Select "SonarCloud"
 2. Enter your SonarCloud User Token
-3. Click "Test Connection"
-4. Select projects to monitor
+3. Enter your SonarCloud organization key
+4. Click "Test Connection"
+5. Select projects to monitor
 
 ## 4. Generate MCP Config
 
