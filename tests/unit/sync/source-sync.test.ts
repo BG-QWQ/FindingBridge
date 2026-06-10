@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import type { AdapterFetchResult, BaseAdapter, ConnectionTestResult } from '@/adapters/base-adapter.js';
+import type { CredentialStore } from '@/config/credential-store.js';
 import type { Config, SourceConfig } from '@/config/validation.js';
 import type { Finding } from '@/core/models/finding.js';
 import { closeConnection, createConnection } from '@/database/connection.js';
@@ -76,6 +77,35 @@ describe('SourceSyncService', () => {
       next_steps: [expect.stringContaining('Export the platform results as SARIF')],
     });
   });
+
+  it('uses per-call SonarCloud project key overrides without persisting config changes', async () => {
+    const config = createConfig([
+      {
+        id: 'sonarcloud',
+        type: 'sonarcloud',
+        enabled: true,
+        options: {},
+        token_ref: 'sonarcloud',
+      },
+    ]);
+    let observedProjectKey: string | undefined;
+    const service = new SourceSyncService({
+      db,
+      config,
+      databasePath: ':memory:',
+      credentialStore: new StaticCredentialStore('token-123') as unknown as CredentialStore,
+      createAdapter: async (source) => {
+        observedProjectKey = source.project_key;
+        return new StaticAdapter([createFinding()]);
+      },
+    });
+
+    const result = await service.syncSources({ projectKeys: { sonarcloud: 'acme_project' } });
+
+    expect(result.sources_synced).toBe(1);
+    expect(observedProjectKey).toBe('acme_project');
+    expect(config.sources[0]?.project_key).toBeUndefined();
+  });
 });
 
 function createConfig(sources: SourceConfig[]): Config {
@@ -107,6 +137,14 @@ class StaticAdapter implements BaseAdapter {
       total: this.findings.length,
       has_more: false,
     };
+  }
+}
+
+class StaticCredentialStore {
+  constructor(private readonly token: string | undefined) {}
+
+  async getToken(): Promise<string | undefined> {
+    return this.token;
   }
 }
 

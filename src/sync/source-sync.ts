@@ -43,6 +43,7 @@ export type SyncSourcesResult = {
 /** Options controlling a sync run across configured scanner sources. */
 export type SyncSourcesOptions = {
   sourceIds?: string[];
+  projectKeys?: Record<string, string>;
   maxPages?: number;
 };
 
@@ -105,7 +106,7 @@ export class SourceSyncService {
     this.syncLogs.create(this.createInitialLog(logId, source.id, startedAt));
 
     try {
-      const adapter = await this.adapterForSource(source);
+      const adapter = await this.adapterForSource(source, options);
       const syncResult = await this.fetchAndPersist(source, adapter, options);
       this.syncLogs.update(logId, {
         completed_at: new Date().toISOString(),
@@ -135,9 +136,10 @@ export class SourceSyncService {
     }
   }
 
-  private async adapterForSource(source: SourceConfig): Promise<BaseAdapter> {
+  private async adapterForSource(source: SourceConfig, options: SyncSourcesOptions): Promise<BaseAdapter> {
     const token = await this.tokenForSource(source);
-    return this.createAdapter(source, token);
+    const sourceWithOverrides = applySyncOverrides(source, options);
+    return this.createAdapter(sourceWithOverrides, token);
   }
 
   private async tokenForSource(source: SourceConfig): Promise<string | undefined> {
@@ -188,7 +190,10 @@ export class SourceSyncService {
           throw new FindingBridgeError({
             code: ErrorCodes.CONFIG_INVALID,
             message: `SonarCloud source ${source.id} requires token and project_key.`,
-            nextSteps: ['Run findingbridge setup and select a SonarCloud project, then retry sync.'],
+            nextSteps: [
+              'Call findingbridge_list_source_projects to list SonarCloud project keys visible to this token.',
+              'Choose the project that matches the current repository and pass it to findingbridge_sync_sources as project_keys[source_id], or save it as this source project_key before retrying sync.',
+            ],
             retryable: false,
           });
         }
@@ -280,4 +285,16 @@ export class SourceSyncService {
 function readStringOption(source: SourceConfig, key: string): string | undefined {
   const value = source.options[key];
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function applySyncOverrides(source: SourceConfig, options: SyncSourcesOptions): SourceConfig {
+  const projectKey = options.projectKeys?.[source.id];
+  if (source.type !== 'sonarcloud' || !projectKey) {
+    return source;
+  }
+
+  return {
+    ...source,
+    project_key: projectKey,
+  };
 }

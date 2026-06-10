@@ -24,6 +24,7 @@ export async function syncSourcesTool(
     });
     const result = await service.syncSources({
       sourceIds: input.source_ids,
+      projectKeys: input.project_keys,
       maxPages: input.max_pages,
     });
     return toolSuccess({
