@@ -12,6 +12,14 @@ export type McpConfigWriteResult = {
   serverName: string;
 };
 
+/** Mapping of format to the MCP key name used in each client's config file. */
+const MCP_KEY_MAP: Record<string, string> = {
+  mcpServers: 'mcpServers',
+  servers: 'servers',
+  mcp: 'mcp',
+  context_servers: 'context_servers',
+};
+
 /** Generate the correct MCP server configuration for the target client format. */
 function generateServerConfig(params: {
   client: DetectedMcpClient;
@@ -66,7 +74,7 @@ function generateServerConfig(params: {
   }
 }
 
-/** Merge FindingBridge into an MCP client config while preserving unrelated servers and settings. */
+/** Merge FindingBridge into an MCP client config while preserving ALL unrelated keys and settings. */
 export async function writeMcpClientConfig(params: {
   client: DetectedMcpClient;
   command: string;
@@ -77,66 +85,23 @@ export async function writeMcpClientConfig(params: {
   const configPath = resolve(params.client.configPath);
   const serverName = params.serverName ?? DEFAULT_MCP_SERVER_NAME;
   const serverConfig = generateServerConfig(params);
-  const existing = await readExistingConfig(configPath, params.client.format);
+  const mcpKey = MCP_KEY_MAP[params.client.format] ?? 'mcpServers';
+
+  // Read the FULL existing config file to preserve all non-MCP keys
+  const { existingConfig, existingMcpServers } = await readExistingConfig(configPath, mcpKey);
   const backupPath = params.client.exists ? `${configPath}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}` : undefined;
 
-  let merged: Record<string, unknown>;
+  // Merge: preserve all existing MCP servers, only add/update our server
+  const mergedMcpServers = {
+    ...existingMcpServers,
+    [serverName]: serverConfig,
+  };
 
-  switch (params.client.format) {
-    case 'mcpServers': {
-      // Claude Desktop, Cursor, Claude Code, Windsurf, Cline
-      merged = {
-        ...existing,
-        mcpServers: {
-          ...existing.mcpServers,
-          [serverName]: serverConfig,
-        },
-      };
-      break;
-    }
-    case 'servers': {
-      // VS Code
-      merged = {
-        ...existing,
-        servers: {
-          ...existing.servers,
-          [serverName]: serverConfig,
-        },
-      };
-      break;
-    }
-    case 'mcp': {
-      // OpenCode
-      merged = {
-        ...existing,
-        mcp: {
-          ...existing.mcp,
-          [serverName]: serverConfig,
-        },
-      };
-      break;
-    }
-    case 'context_servers': {
-      // Zed
-      merged = {
-        ...existing,
-        context_servers: {
-          ...existing.context_servers,
-          [serverName]: serverConfig,
-        },
-      };
-      break;
-    }
-    default: {
-      merged = {
-        ...existing,
-        mcpServers: {
-          ...existing.mcpServers,
-          [serverName]: serverConfig,
-        },
-      };
-    }
-  }
+  // Build the final config: preserve ALL original keys, only update the MCP key
+  const merged = {
+    ...existingConfig,
+    [mcpKey]: mergedMcpServers,
+  };
 
   try {
     await mkdir(dirname(configPath), { recursive: true });
@@ -156,35 +121,25 @@ export async function writeMcpClientConfig(params: {
   return { client: params.client, configPath, backupPath, serverName };
 }
 
-async function readExistingConfig(configPath: string, format: string): Promise<Record<string, Record<string, unknown>>> {
+/**
+ * Read the full existing config file and extract only the MCP server section.
+ * Returns both the full config object (to preserve non-MCP keys) and the MCP section.
+ */
+async function readExistingConfig(configPath: string, mcpKey: string): Promise<{
+  existingConfig: Record<string, unknown>;
+  existingMcpServers: Record<string, unknown>;
+}> {
   try {
     const raw = await readFile(configPath, 'utf-8');
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-
-    switch (format) {
-      case 'mcpServers':
-        return { mcpServers: (parsed.mcpServers as Record<string, unknown>) ?? {} };
-      case 'servers':
-        return { servers: (parsed.servers as Record<string, unknown>) ?? {} };
-      case 'mcp':
-        return { mcp: (parsed.mcp as Record<string, unknown>) ?? {} };
-      case 'context_servers':
-        return { context_servers: (parsed.context_servers as Record<string, unknown>) ?? {} };
-      default:
-        return { mcpServers: (parsed.mcpServers as Record<string, unknown>) ?? {} };
-    }
+    return {
+      existingConfig: parsed,
+      existingMcpServers: (parsed[mcpKey] as Record<string, unknown>) ?? {},
+    };
   } catch {
-    switch (format) {
-      case 'mcpServers':
-        return { mcpServers: {} };
-      case 'servers':
-        return { servers: {} };
-      case 'mcp':
-        return { mcp: {} };
-      case 'context_servers':
-        return { context_servers: {} };
-      default:
-        return { mcpServers: {} };
-    }
+    return {
+      existingConfig: {},
+      existingMcpServers: {},
+    };
   }
 }
