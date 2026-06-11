@@ -1,8 +1,24 @@
 # MCP Tools Reference
 
-All tools use the `findingbridge_` prefix and are read-only (`readOnlyHint: true`).
+All tools use the `findingbridge_` prefix. Read-only tools declare
+`readOnlyHint: true`.
 
-`findingbridge_sync_sources` writes scanner findings to FindingBridge's local database only; it never modifies user repositories.
+`findingbridge_sync_sources` may call scanner APIs and writes scanner findings
+to FindingBridge's local database only; it never modifies user repositories.
+
+## Workspace Confirmation Guardrail
+
+FindingBridge MCP tools return findings from the configured local database or
+from scanner sources synchronized into that database. The MCP server cannot
+reliably know the calling agent's current IDE/workspace repository, so agents
+must ask the user to confirm the repository or scanner project under review
+before relying on findings as applicable to that workspace.
+
+Do not use `file_path`, `rule_id`, or stored scanner project keys as implicit
+current-project selectors. When current/latest platform data is requested,
+confirm the current repository/project with the user, synchronize the matching
+source with `findingbridge_sync_sources`, then read `findingbridge_summary` or
+`findingbridge_list_findings`.
 
 ## findingbridge_list_findings
 
@@ -361,8 +377,9 @@ This avoids pulling every configured repository in multi-repository setups. Pass
 source.
 
 For SonarCloud sources without a saved `project_key`, first call
-`findingbridge_list_source_projects`, then pass the selected project key as
-`project_keys[source_id]`. Per-call overrides are not persisted.
+`findingbridge_list_source_projects`, have the user confirm which discovered
+project key matches the current repository, then pass the selected project key
+as `project_keys[source_id]`. Per-call overrides are not persisted.
 
 ### Output Fields
 
@@ -405,9 +422,14 @@ All tools return structured errors:
 
 ## Annotations
 
-All tools declare:
-- `readOnlyHint: true` — Tools do not modify data
-- `destructiveHint: false` — No destructive operations
+Read-only tools declare:
+- `readOnlyHint: true` — The tool does not modify data
+- `destructiveHint: false` — The tool performs no destructive operations
+
+`findingbridge_sync_sources` declares `readOnlyHint: false` because it writes
+scanner findings to FindingBridge's local database, while still declaring
+`destructiveHint: false` because it does not modify user repositories or delete
+scanner data.
 
 ## Pagination
 
