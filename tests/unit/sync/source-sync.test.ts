@@ -423,6 +423,45 @@ describe('SourceSyncService', () => {
     expect(observedProjectKey).toBe('acme_project');
     expect(config.sources[0]?.project_key).toBeUndefined();
   });
+
+  it('syncs multiple GitHub repository sources independently with a shared token ref', async () => {
+    const config = createConfig([
+      {
+        id: 'github-code-scanning',
+        type: 'github',
+        enabled: true,
+        token_ref: 'github-code-scanning',
+        options: { owner: 'acme', repo: 'api' },
+      },
+      {
+        id: 'github-code-scanning-acme-web',
+        type: 'github',
+        enabled: true,
+        token_ref: 'github-code-scanning',
+        options: { owner: 'acme', repo: 'web' },
+      },
+    ]);
+    const observedSources: SourceConfig[] = [];
+    const service = new SourceSyncService({
+      db,
+      config,
+      databasePath: ':memory:',
+      credentialStore: new StaticCredentialStore('token-123') as unknown as CredentialStore,
+      createAdapter: async (source) => {
+        observedSources.push(source);
+        return new StaticAdapter([createFinding({ id: `fb-${source.id}`, fingerprint: `${source.id}-fingerprint` })]);
+      },
+    });
+
+    const result = await service.syncSources();
+
+    expect(result).toMatchObject({ sources_synced: 2, sources_failed: 0 });
+    expect(observedSources.map((source) => source.options)).toEqual([
+      { owner: 'acme', repo: 'api' },
+      { owner: 'acme', repo: 'web' },
+    ]);
+    expect(new FindingRepository(db).list({}).total).toBe(2);
+  });
 });
 
 function createConfig(sources: SourceConfig[]): Config {
