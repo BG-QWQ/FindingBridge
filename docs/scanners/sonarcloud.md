@@ -47,7 +47,10 @@ synchronization can include a SonarCloud source as an inferred current-project
 source only when the source has a saved `project_key` or the sync call passes a
 matching `project_keys[source_id]` override. Use
 `findingbridge_list_source_projects` to discover the project key when it is not
-already saved.
+already saved. When syncing all scanners for the current workspace repository,
+omit `source_ids` and pass `project_keys` for every matching SonarCloud source
+that needs a key so the default sync can include every current-project scanner
+source.
 
 ## Data Retrieved
 

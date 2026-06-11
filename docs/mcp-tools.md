@@ -343,7 +343,7 @@ an organization.
         }
       ],
       "next_steps": [
-        "Choose the project key that matches the current repository before running findingbridge_sync_sources."
+        "Choose every project key that matches the current repository, then call findingbridge_sync_sources without source_ids and pass project_keys for every matching source that needs a key."
       ]
     }
   ],
@@ -371,22 +371,24 @@ Call this before reading current scanner platform results with
 }
 ```
 
-When `source_ids` is omitted, synchronization defaults to inferred
-current-project sources. GitHub sources are included when the local `origin`
-remote matches their configured owner/repository. SonarCloud sources are included
-when they have a saved `project_key` or a per-call `project_keys[source_id]`
-override. SARIF path sources are not inferred from the current repository; select
-them explicitly with `source_ids`, make them the only enabled source, or pass
-`all_sources: true`.
+When synchronizing all scanner data for the confirmed current workspace
+repository, omit `source_ids`. Omitted `source_ids` tells FindingBridge to sync
+all inferred current-project sources: GitHub sources whose configured
+owner/repository matches the local `origin` remote, plus SonarCloud sources with
+a saved `project_key` or a per-call `project_keys[source_id]` override. SARIF
+path sources are not inferred from the current repository; select them explicitly
+with `source_ids`, make them the only enabled source, or pass `all_sources: true`.
 
 Pass `all_sources: true` only when you intentionally want to synchronize every
 enabled configured source, including sources that are not inferable as the
 current project.
 
 For SonarCloud sources without a saved `project_key`, first call
-`findingbridge_list_source_projects`, have the user confirm which discovered
-project key matches the current repository, then pass the selected project key
-as `project_keys[source_id]`. Per-call overrides are not persisted.
+`findingbridge_list_source_projects`, have the user confirm every discovered
+project key that matches the current repository across configured scanner
+sources, then call `findingbridge_sync_sources` without `source_ids` and pass a
+complete `project_keys` map for each matching source that needs a key. Per-call
+overrides are not persisted.
 
 ### Output Fields
 
