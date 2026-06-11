@@ -19,9 +19,13 @@ List findings with optional filtering and pagination.
   "file_path": "src/db.ts",
   "limit": 50,
   "offset": 0,
-  "sort_by": "priority_score"
+  "sort_by": "priority_score",
+  "include_stale": false
 }
 ```
+
+By default, stale or out-of-current-scope findings are excluded. Set
+`include_stale: true` only when intentionally reviewing historical findings.
 
 ### Output Schema
 
@@ -37,7 +41,8 @@ List findings with optional filtering and pagination.
       "location": "src/db.ts:42",
       "status": "open",
       "priority_score": 85,
-      "is_duplicate": false
+      "is_duplicate": false,
+      "is_stale": false
     }
   ],
   "total": 128,
@@ -55,9 +60,13 @@ Get detailed information about a single finding.
 {
   "finding_id": "fb-001",
   "include_code_context": true,
-  "context_lines": 5
+  "context_lines": 5,
+  "include_stale": false
 }
 ```
+
+Exact-ID finding tools exclude stale findings by default. Set
+`include_stale: true` only when intentionally reviewing historical findings.
 
 ### Output Schema
 
@@ -96,7 +105,8 @@ Explain a finding in plain language.
 {
   "finding_id": "fb-001",
   "audience": "beginner",
-  "language": "zh-CN"
+  "language": "zh-CN",
+  "include_stale": false
 }
 ```
 
@@ -189,10 +199,16 @@ Preview duplicate findings (dry-run by default).
 
 ```json
 {
-  "scope": "cross_tool",
+  "scope": {
+    "tool": ["github-code-scanning", "semgrep"],
+    "include_stale": false
+  },
   "dry_run": true
 }
 ```
+
+Deduplication excludes stale findings by default. Set `scope.include_stale` to
+`true` only when intentionally previewing historical findings.
 
 ### Output Schema
 
@@ -223,11 +239,17 @@ Generate a security findings report.
 ```json
 {
   "format": "markdown",
-  "scope": "all",
+  "scope": {
+    "severity": ["critical", "high"],
+    "include_stale": false
+  },
   "include_recommendations": true,
   "language": "en"
 }
 ```
+
+Reports exclude stale findings by default. Set `scope.include_stale` to `true`
+only when intentionally reporting on historical findings.
 
 ### Output Schema
 
@@ -320,6 +342,27 @@ Call this before reading current scanner platform results with
 For SonarCloud sources without a saved `project_key`, first call
 `findingbridge_list_source_projects`, then pass the selected project key as
 `project_keys[source_id]`. Per-call overrides are not persisted.
+
+### Output Fields
+
+Each source result includes stale-isolation audit fields:
+
+```json
+{
+  "source_id": "sonarcloud",
+  "status": "success",
+  "findings_found": 12,
+  "findings_imported": 12,
+  "findings_stale_marked": 3,
+  "stale_isolation_applied": true,
+  "pages_fetched": 1
+}
+```
+
+`stale_isolation_applied` is false when synchronization fails or stops before
+the scanner result set is complete, such as when `max_pages` is too low. In
+that case existing findings remain visible until a complete sync establishes
+the current scope.
 
 ## Error Handling
 
