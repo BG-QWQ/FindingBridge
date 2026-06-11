@@ -16,15 +16,18 @@
 ```bash
 findingbridge setup
 # Select "GitHub Code Scanning", paste token, test the connection,
-# then choose the repository owner and repository from the discovered list.
+# then choose one or more repositories from the discovered list.
 ```
 
 For headless systems, the CLI fallback prompts for the same repository coordinates:
 
 ```bash
 findingbridge setup --cli
-# Enter the GitHub token, repository owner or organization, and repository name.
+# Enter the GitHub token, repository owner or organization, and repository names.
+# Separate multiple repositories with commas; use owner/repo to mix owners.
 ```
+
+When multiple repositories are selected, FindingBridge writes one GitHub source per repository and reuses the same token reference for all of them. This keeps sync isolation repository-scoped while avoiding raw token duplication in the configuration file.
 
 Or set directly:
 
@@ -57,6 +60,7 @@ If permissions are missing, the setup wizard shows:
 ## API Behavior
 
 - Pagination: 100 alerts per page
+- Multi-repository setup: each selected repository syncs as its own configured source
 - Rate limiting: Follows GitHub API limits
 - Error handling: 401/403/404/429 with actionable messages
 
