@@ -118,18 +118,20 @@ export class SourceSyncService {
       }
 
       const currentRepository = await this.detectCurrentGitHubRepository();
-      const matchingSources = currentRepository ? selectCurrentGitHubRepositorySources(enabled, currentRepository) : [];
+      const matchingSources = selectCurrentProjectSources(enabled, currentRepository, options.projectKeys);
       if (matchingSources.length > 0) {
         return matchingSources;
       }
 
       throw new FindingBridgeError({
         code: ErrorCodes.CONFIG_INVALID,
-        message: 'Multiple scanner sources are configured, and FindingBridge could not infer a single current repository source to synchronize.',
+        message: 'Multiple scanner sources are configured, and FindingBridge could not infer any current project sources to synchronize.',
         nextSteps: [
           'Pass source_ids to findingbridge_sync_sources or repeat --source with the source IDs you want to sync.',
           'Pass all_sources: true or use findingbridge sync --all when you intentionally want to synchronize every configured source.',
-          'Run sync from a GitHub repository whose origin remote matches one configured GitHub source.',
+          'Run sync from a GitHub repository whose origin remote matches one or more configured GitHub sources.',
+          'For SonarCloud, save the matching project_key on the source or pass project_keys[source_id] for this sync run.',
+          'Select SARIF sources explicitly with source_ids or all_sources because SARIF paths cannot be inferred from the current repository.',
         ],
         retryable: false,
       });
@@ -365,15 +367,35 @@ export class SourceSyncService {
   }
 }
 
-function selectCurrentGitHubRepositorySources(sources: SourceConfig[], repository: GitHubRepositoryIdentity): SourceConfig[] {
+function selectCurrentProjectSources(
+  sources: SourceConfig[],
+  repository: GitHubRepositoryIdentity | undefined,
+  projectKeys?: Record<string, string>
+): SourceConfig[] {
   return sources.filter((source) => {
-    if (source.type !== 'github') {
-      return false;
+    if (source.type === 'github') {
+      return repository !== undefined && matchesGitHubRepository(source, repository);
     }
 
-    return readStringOption(source, 'owner')?.toLowerCase() === repository.owner.toLowerCase()
-      && readStringOption(source, 'repo')?.toLowerCase() === repository.repo.toLowerCase();
+    if (source.type === 'sonarcloud') {
+      return hasEffectiveProjectKey(source, projectKeys);
+    }
+
+    return false;
   });
+}
+
+function hasEffectiveProjectKey(source: SourceConfig, projectKeys?: Record<string, string>): boolean {
+  if (source.project_key?.trim()) {
+    return true;
+  }
+
+  return Boolean(projectKeys?.[source.id]?.trim());
+}
+
+function matchesGitHubRepository(source: SourceConfig, repository: GitHubRepositoryIdentity): boolean {
+  return readStringOption(source, 'owner')?.toLowerCase() === repository.owner.toLowerCase()
+    && readStringOption(source, 'repo')?.toLowerCase() === repository.repo.toLowerCase();
 }
 
 async function detectCurrentGitHubRepository(): Promise<GitHubRepositoryIdentity | undefined> {
@@ -420,7 +442,7 @@ function readStringOption(source: SourceConfig, key: string): string | undefined
 }
 
 function applySyncOverrides(source: SourceConfig, options: SyncSourcesOptions): SourceConfig {
-  const projectKey = options.projectKeys?.[source.id];
+  const projectKey = options.projectKeys?.[source.id]?.trim();
   if (source.type !== 'sonarcloud' || !projectKey) {
     return source;
   }

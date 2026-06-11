@@ -463,8 +463,8 @@ describe('SourceSyncService', () => {
     expect(new FindingRepository(db).list({}).total).toBe(2);
   });
 
-  it('defaults multi-source GitHub sync to the current repository source', async () => {
-    const config = createConfig(gitHubSources());
+  it('defaults multi-source sync to all inferable current-project sources', async () => {
+    const config = createConfig(currentProjectSources());
     const observedSources: SourceConfig[] = [];
     const service = new SourceSyncService({
       db,
@@ -480,12 +480,66 @@ describe('SourceSyncService', () => {
 
     const result = await service.syncSources();
 
+    expect(result).toMatchObject({ sources_total: 2, sources_synced: 2 });
+    expect(observedSources.map((source) => source.id)).toEqual(['github-code-scanning-acme-web', 'sonarcloud-web']);
+  });
+
+  it('uses per-call SonarCloud project keys as inferable current-project sources', async () => {
+    const config = createConfig([
+      ...gitHubSources(),
+      {
+        id: 'sonarcloud-web',
+        type: 'sonarcloud',
+        enabled: true,
+        project_key: ' ',
+        token_ref: 'sonarcloud',
+        options: { organization: 'acme' },
+      },
+    ]);
+    const observedSources: SourceConfig[] = [];
+    const service = new SourceSyncService({
+      db,
+      config,
+      databasePath: ':memory:',
+      credentialStore: new StaticCredentialStore('token-123') as unknown as CredentialStore,
+      detectCurrentGitHubRepository: async () => ({ owner: 'acme', repo: 'web' }),
+      createAdapter: async (source) => {
+        observedSources.push(source);
+        return new StaticAdapter([createFinding({ id: `fb-${source.id}`, fingerprint: `${source.id}-fingerprint` })]);
+      },
+    });
+
+    const result = await service.syncSources({ projectKeys: { 'sonarcloud-web': 'acme_web' } });
+
+    expect(result).toMatchObject({ sources_total: 2, sources_synced: 2 });
+    expect(observedSources.map((source) => source.id)).toEqual(['github-code-scanning-acme-web', 'sonarcloud-web']);
+    expect(observedSources.find((source) => source.id === 'sonarcloud-web')?.project_key).toBe('acme_web');
+    expect(config.sources.find((source) => source.id === 'sonarcloud-web')?.project_key).toBe(' ');
+  });
+
+  it('keeps explicit source IDs as an exact allowlist over inferred current-project sources', async () => {
+    const config = createConfig(currentProjectSources());
+    const observedSources: SourceConfig[] = [];
+    const service = new SourceSyncService({
+      db,
+      config,
+      databasePath: ':memory:',
+      credentialStore: new StaticCredentialStore('token-123') as unknown as CredentialStore,
+      detectCurrentGitHubRepository: async () => ({ owner: 'acme', repo: 'web' }),
+      createAdapter: async (source) => {
+        observedSources.push(source);
+        return new StaticAdapter([createFinding({ id: `fb-${source.id}`, fingerprint: `${source.id}-fingerprint` })]);
+      },
+    });
+
+    const result = await service.syncSources({ sourceIds: ['sonarcloud-web'] });
+
     expect(result).toMatchObject({ sources_total: 1, sources_synced: 1 });
-    expect(observedSources.map((source) => source.id)).toEqual(['github-code-scanning-acme-web']);
+    expect(observedSources.map((source) => source.id)).toEqual(['sonarcloud-web']);
   });
 
   it('syncs all configured sources only when allSources is explicit', async () => {
-    const config = createConfig(gitHubSources());
+    const config = createConfig(currentProjectSources());
     const observedSources: SourceConfig[] = [];
     const service = new SourceSyncService({
       db,
@@ -501,12 +555,35 @@ describe('SourceSyncService', () => {
 
     const result = await service.syncSources({ allSources: true });
 
-    expect(result).toMatchObject({ sources_total: 2, sources_synced: 2 });
-    expect(observedSources.map((source) => source.id)).toEqual(['github-code-scanning', 'github-code-scanning-acme-web']);
+    expect(result).toMatchObject({ sources_total: 5, sources_synced: 5, sources_failed: 0 });
+    expect(observedSources.map((source) => source.id)).toEqual([
+      'github-code-scanning',
+      'github-code-scanning-acme-web',
+      'sonarcloud-web',
+      'sonarcloud-unconfigured',
+      'sarif-web',
+    ]);
   });
 
-  it('refuses broad multi-source sync when no current repository source matches', async () => {
-    const config = createConfig(gitHubSources());
+  it('refuses broad multi-source sync when no current-project source is inferable', async () => {
+    const config = createConfig([
+      ...gitHubSources(),
+      {
+        id: 'sonarcloud-unconfigured',
+        type: 'sonarcloud',
+        enabled: true,
+        project_key: ' ',
+        token_ref: 'sonarcloud',
+        options: { organization: 'acme' },
+      },
+      {
+        id: 'sarif-web',
+        type: 'sarif',
+        enabled: true,
+        path: 'web.sarif',
+        options: {},
+      },
+    ]);
     const service = new SourceSyncService({
       db,
       config,
@@ -516,7 +593,7 @@ describe('SourceSyncService', () => {
       createAdapter: async () => new StaticAdapter([createFinding()]),
     });
 
-    await expect(service.syncSources()).rejects.toThrow('could not infer a single current repository source');
+    await expect(service.syncSources()).rejects.toThrow('could not infer any current project sources');
   });
 });
 
@@ -546,6 +623,34 @@ function gitHubSources(): SourceConfig[] {
       enabled: true,
       token_ref: 'github-code-scanning',
       options: { owner: 'acme', repo: 'web' },
+    },
+  ];
+}
+
+function currentProjectSources(): SourceConfig[] {
+  return [
+    ...gitHubSources(),
+    {
+      id: 'sonarcloud-web',
+      type: 'sonarcloud',
+      enabled: true,
+      project_key: 'acme_web',
+      token_ref: 'sonarcloud',
+      options: { organization: 'acme' },
+    },
+    {
+      id: 'sonarcloud-unconfigured',
+      type: 'sonarcloud',
+      enabled: true,
+      token_ref: 'sonarcloud',
+      options: { organization: 'acme' },
+    },
+    {
+      id: 'sarif-web',
+      type: 'sarif',
+      enabled: true,
+      path: 'web.sarif',
+      options: {},
     },
   ];
 }
