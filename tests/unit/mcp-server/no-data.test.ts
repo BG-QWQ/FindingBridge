@@ -77,7 +77,7 @@ describe('MCP no-data responses', () => {
       type: 'global_database',
       project_scope_supported: false,
       current_project_matched: false,
-      agent_instruction: expect.stringContaining('Do not claim these findings apply to the current project'),
+      agent_instruction: expect.stringContaining('Confirm the current workspace repository/project with the user'),
     });
   });
 
@@ -95,6 +95,7 @@ describe('MCP no-data responses', () => {
       type: 'global_database',
       project_scope_supported: false,
       current_project_matched: false,
+      agent_instruction: expect.stringContaining('Confirm the current workspace repository/project with the user'),
     });
   });
 
