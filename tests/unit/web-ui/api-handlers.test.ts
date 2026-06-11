@@ -35,6 +35,28 @@ describe('handleApiRequest', () => {
     expect(response.statusCode).toBe(404);
     expect(response.body).toBe('{"error":"API endpoint not found: GET /api/setup/missing"}');
   });
+
+  it('rejects GitHub setup saves without a selected repository', async () => {
+    const response = new StubResponse();
+    const request = createJsonRequest('/api/setup/save', 'POST', {
+      token_storage: 'env',
+      sources: [
+        {
+          id: 'github-code-scanning',
+          type: 'github',
+          name: 'GitHub Code Scanning',
+          enabled: true,
+          options: {},
+        },
+      ],
+    });
+
+    const handled = await handleApiRequest(request, response as unknown as ServerResponse);
+
+    expect(handled).toBe(true);
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toContain('requires a selected repository owner and name');
+  });
 });
 
 function createRequest(url: string, method: string): IncomingMessage {
@@ -43,6 +65,15 @@ function createRequest(url: string, method: string): IncomingMessage {
     method,
     headers: {},
   }) as unknown as IncomingMessage;
+}
+
+function createJsonRequest(url: string, method: string, body: unknown): IncomingMessage {
+  const request = createRequest(url, method);
+  process.nextTick(() => {
+    request.emit('data', JSON.stringify(body));
+    request.emit('end');
+  });
+  return request;
 }
 
 class StubResponse extends EventEmitter {

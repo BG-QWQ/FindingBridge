@@ -147,9 +147,15 @@ function sanitizeSourceOptions(source: SetupSourceInput): Record<string, unknown
 
   switch (source.type) {
     case 'github': {
+      const owner = readStringOption(source.options, 'owner');
+      const repo = readStringOption(source.options, 'repo');
+      if (!owner || !repo) {
+        throw new SetupValidationError(`GitHub source ${source.name ?? source.id} requires a selected repository owner and name.`);
+      }
+
       return {
-        owner: readStringOption(source.options, 'owner'),
-        repo: readStringOption(source.options, 'repo'),
+        owner,
+        repo,
       };
     }
     case 'sonarcloud': {
