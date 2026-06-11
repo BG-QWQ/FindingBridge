@@ -22,6 +22,7 @@ export function registerTriageWorkflowPrompt(server: McpServer): void {
             type: 'text',
             text: [
               'Use FindingBridge to triage existing scanner findings without modifying source code.',
+              'Workspace guardrail: before relying on findings as applicable to the current workspace, ask the user to confirm the repository/project under review and that this FindingBridge database or synchronized scanner source corresponds to it. Do not auto-detect or infer the MCP client workspace.',
               '',
               'Recommended workflow:',
               '0. If the user asks for current or latest scanner platform results, call findingbridge_sync_sources before reading findings.',
