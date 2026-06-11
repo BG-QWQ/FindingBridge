@@ -63,6 +63,17 @@ export interface TestConnectionResponse {
   help_url?: string;
   projects_found?: number;
   orgs_found?: number;
+  repositories?: RepositoryOption[];
+}
+
+/** Repository option returned after GitHub token discovery. */
+export interface RepositoryOption {
+  owner: string;
+  name: string;
+  full_name: string;
+  private?: boolean;
+  archived?: boolean;
+  disabled?: boolean;
 }
 
 /** MCP client detection response */
