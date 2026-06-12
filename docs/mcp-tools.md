@@ -50,10 +50,10 @@ By default, stale or out-of-current-scope findings are excluded. Set
 - `file_path` matches normalized stored finding locations, such as `src/db.ts`
   or `ensemble.py`; it is not a repository name, scanner project key, or
   current-project selector.
-- SonarCloud project keys belong in the discovery and synchronization flow:
+- SonarCloud project keys belong in the discovery and synchronization flow. If
+  default sync cannot infer a unique exact/normalized current-repository match,
   call `findingbridge_list_source_projects`, choose the matching project key,
-  then pass it to `findingbridge_sync_sources.project_keys[source_id]` when it
-  is not already saved on the source.
+  then pass it to `findingbridge_sync_sources.project_keys[source_id]`.
 - Empty results with filters mean no stored findings matched those filters. For
   current or latest scanner platform results, synchronize first before
   concluding the scanner platform has no findings.
@@ -375,20 +375,27 @@ When synchronizing all scanner data for the confirmed current workspace
 repository, omit `source_ids`. Omitted `source_ids` tells FindingBridge to sync
 all inferred current-project sources: GitHub sources whose configured
 owner/repository matches the local `origin` remote, plus SonarCloud sources with
-a saved `project_key` or a per-call `project_keys[source_id]` override. SARIF
-path sources are not inferred from the current repository; select them explicitly
-with `source_ids`, make them the only enabled source, or pass `all_sources: true`.
+a saved `project_key`, a per-call `project_keys[source_id]` override, or a
+single exact/normalized SonarCloud project match for the current GitHub
+owner/repository. SARIF path sources are not inferred from the current
+repository; select them explicitly with `source_ids`, make them the only enabled
+source, or pass `all_sources: true`.
 
 Pass `all_sources: true` only when you intentionally want to synchronize every
 enabled configured source, including sources that are not inferable as the
 current project.
 
-For SonarCloud sources without a saved `project_key`, first call
-`findingbridge_list_source_projects`, have the user confirm every discovered
-project key that matches the current repository across configured scanner
-sources, then call `findingbridge_sync_sources` without `source_ids` and pass a
-complete `project_keys` map for each matching source that needs a key. Per-call
-overrides are not persisted.
+For SonarCloud sources without a saved `project_key`, default sync discovers
+projects in the configured organization and auto-selects only one unique
+exact/normalized match, such as `owner_repo`, `owner-repo`, or a project name
+equal to the repository name. Ambiguous matches, missing matches, missing
+organization/token, truncated project discovery, or discovery failures are
+returned as skipped source results with next steps; FindingBridge does not fuzzy
+auto-sync those projects. In those cases, rerun with a higher `max_pages` value
+or call `findingbridge_list_source_projects`, have the user confirm every
+matching key, then rerun `findingbridge_sync_sources` without `source_ids` and
+pass a complete `project_keys` map for each source that needs a key. Inferred and
+per-call project keys are not persisted.
 
 ### Output Fields
 
