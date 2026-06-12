@@ -6,6 +6,8 @@ import type { AdapterFetchResult, BaseAdapter } from '../adapters/base-adapter.j
 import { GitHubAdapter } from '../adapters/github/github-adapter.js';
 import { SarifAdapter } from '../adapters/sarif/sarif-adapter.js';
 import { SonarCloudAdapter } from '../adapters/sonarcloud/sonarcloud-adapter.js';
+import { SonarCloudClient } from '../adapters/sonarcloud/sonarcloud-client.js';
+import type { SonarCloudProject } from '../adapters/sonarcloud/sonarcloud-schemas.js';
 import { CredentialStore } from '../config/credential-store.js';
 import type { Config, SourceConfig } from '../config/validation.js';
 import { FindingBridgeError, ErrorCodes } from '../core/errors.js';
@@ -21,6 +23,23 @@ const execFileAsync = promisify(execFile);
 type GitHubRepositoryIdentity = {
   owner: string;
   repo: string;
+};
+
+type SonarCloudProjectListClient = Pick<SonarCloudClient, 'listProjects'>;
+
+type SourceSelection = {
+  sources: SourceConfig[];
+  skipped: SourceSyncResult[];
+};
+
+type SonarCloudProjectMatch =
+  | { status: 'matched'; project: SonarCloudProject }
+  | { status: 'missing' }
+  | { status: 'ambiguous'; projects: SonarCloudProject[] };
+
+type SonarCloudProjectListResult = {
+  projects: SonarCloudProject[];
+  truncated: boolean;
 };
 
 /** Status for one configured source synchronization attempt. */
@@ -66,6 +85,7 @@ export type SourceSyncServiceOptions = {
   databasePath?: string;
   credentialStore?: CredentialStore;
   createAdapter?: (source: SourceConfig, token?: string) => Promise<BaseAdapter>;
+  createSonarCloudClient?: (source: SourceConfig, token: string) => SonarCloudProjectListClient;
   detectCurrentGitHubRepository?: () => Promise<GitHubRepositoryIdentity | undefined>;
 };
 
@@ -75,6 +95,7 @@ export class SourceSyncService {
   private readonly syncLogs: SyncRepository;
   private readonly credentialStore: CredentialStore;
   private readonly createAdapter: (source: SourceConfig, token?: string) => Promise<BaseAdapter>;
+  private readonly createSonarCloudClient: (source: SourceConfig, token: string) => SonarCloudProjectListClient;
   private readonly detectCurrentGitHubRepository: () => Promise<GitHubRepositoryIdentity | undefined>;
 
   constructor(private readonly options: SourceSyncServiceOptions) {
@@ -82,21 +103,30 @@ export class SourceSyncService {
     this.syncLogs = new SyncRepository(options.db);
     this.credentialStore = options.credentialStore ?? new CredentialStore();
     this.createAdapter = options.createAdapter ?? ((source, token) => this.createConfiguredAdapter(source, token));
+    this.createSonarCloudClient =
+      options.createSonarCloudClient ??
+      ((source, token) =>
+        new SonarCloudClient({
+          token,
+          organization: readStringOption(source, 'organization'),
+          apiBaseUrl: source.api_url,
+        }));
     this.detectCurrentGitHubRepository = options.detectCurrentGitHubRepository ?? detectCurrentGitHubRepository;
   }
 
   /** Sync enabled configured sources, optionally narrowed to specific source IDs. */
   async syncSources(options: SyncSourcesOptions = {}): Promise<SyncSourcesResult> {
-    const selected = await this.selectSources(options);
+    const selection = await this.selectSources(options);
     const results: SourceSyncResult[] = [];
 
-    for (const source of selected) {
+    for (const source of selection.sources) {
       results.push(await this.syncOneSource(source, options));
     }
+    results.push(...selection.skipped);
 
     return {
       database_path: this.options.databasePath ?? this.options.config.database_path,
-      sources_total: selected.length,
+      sources_total: selection.sources.length + selection.skipped.length,
       sources_synced: results.filter((result) => result.status === 'success').length,
       sources_failed: results.filter((result) => result.status === 'failed').length,
       sources_skipped: results.filter((result) => result.status === 'skipped').length,
@@ -105,22 +135,27 @@ export class SourceSyncService {
     };
   }
 
-  private async selectSources(options: SyncSourcesOptions): Promise<SourceConfig[]> {
+  private async selectSources(options: SyncSourcesOptions): Promise<SourceSelection> {
     const enabled = this.options.config.sources.filter((source) => source.enabled);
     const sourceIds = options.sourceIds;
     if (!sourceIds?.length) {
       if (options.allSources) {
-        return enabled;
+        return { sources: enabled, skipped: [] };
       }
 
-      if (enabled.length <= 1) {
-        return enabled;
+      if (enabled.length <= 1 && enabled.every((source) => source.type !== 'sonarcloud' || hasEffectiveProjectKey(source, options.projectKeys))) {
+        return { sources: enabled, skipped: [] };
       }
 
       const currentRepository = await this.detectCurrentGitHubRepository();
-      const matchingSources = selectCurrentProjectSources(enabled, currentRepository, options.projectKeys);
-      if (matchingSources.length > 0) {
-        return matchingSources;
+      const selection = await this.selectCurrentProjectSources(
+        enabled,
+        currentRepository,
+        options.projectKeys,
+        options.maxPages ?? DEFAULT_MAX_PAGES
+      );
+      if (selection.sources.length > 0 || selection.skipped.length > 0) {
+        return selection;
       }
 
       throw new FindingBridgeError({
@@ -138,7 +173,134 @@ export class SourceSyncService {
     }
 
     const requested = new Set(sourceIds);
-    return enabled.filter((source) => requested.has(source.id));
+    return { sources: enabled.filter((source) => requested.has(source.id)), skipped: [] };
+  }
+
+  private async selectCurrentProjectSources(
+    sources: SourceConfig[],
+    repository: GitHubRepositoryIdentity | undefined,
+    projectKeys: Record<string, string> | undefined,
+    maxPages: number
+  ): Promise<SourceSelection> {
+    const selected: SourceConfig[] = [];
+    const skipped: SourceSyncResult[] = [];
+
+    for (const source of sources) {
+      if (source.type === 'github') {
+        if (repository !== undefined && matchesGitHubRepository(source, repository)) {
+          selected.push(source);
+        }
+        continue;
+      }
+
+      if (source.type !== 'sonarcloud') {
+        continue;
+      }
+
+      if (hasEffectiveProjectKey(source, projectKeys)) {
+        selected.push(source);
+        continue;
+      }
+
+      const inferred = await this.inferSonarCloudProjectSource(source, repository, maxPages);
+      if ('source' in inferred) {
+        selected.push(inferred.source);
+      } else {
+        skipped.push(inferred.skipped);
+      }
+    }
+
+    return { sources: selected, skipped };
+  }
+
+  private async inferSonarCloudProjectSource(
+    source: SourceConfig,
+    repository: GitHubRepositoryIdentity | undefined,
+    maxPages: number
+  ): Promise<{ source: SourceConfig } | { skipped: SourceSyncResult }> {
+    if (!repository) {
+      return {
+        skipped: createSkippedSourceResult(source, {
+          message: `SonarCloud source ${source.id} needs a current GitHub repository before FindingBridge can infer a project key.`,
+          nextSteps: [
+            'Run sync from a GitHub repository whose origin remote matches the workspace under review.',
+            `Call findingbridge_list_source_projects for ${source.id}, choose the matching key, and pass project_keys[${source.id}] when syncing outside a GitHub repository.`,
+          ],
+        }),
+      };
+    }
+
+    const organization = readStringOption(source, 'organization');
+    if (!organization) {
+      return {
+        skipped: createSkippedSourceResult(source, {
+          message: `SonarCloud source ${source.id} needs an organization before FindingBridge can infer a project key.`,
+          nextSteps: [
+            `Configure options.organization for ${source.id} or pass organizations[${source.id}] to findingbridge_list_source_projects.`,
+            `Choose the matching project key and pass project_keys[${source.id}] to findingbridge_sync_sources.`,
+          ],
+        }),
+      };
+    }
+
+    try {
+      const token = await this.tokenForSource(source);
+      if (!token) {
+        throw new FindingBridgeError({
+          code: ErrorCodes.TOKEN_MISSING,
+          message: `Token is missing for source ${source.id}.`,
+          nextSteps: [`Run findingbridge config set-token ${source.id} or rerun findingbridge setup.`],
+          retryable: false,
+        });
+      }
+      const projectList = await listSonarCloudProjects(this.createSonarCloudClient(source, token), maxPages);
+      if (projectList.truncated) {
+        return {
+          skipped: createSkippedSourceResult(source, {
+            message: `SonarCloud source ${source.id} project discovery reached max_pages before FindingBridge could prove a unique project match.`,
+            nextSteps: [
+              'Rerun findingbridge_sync_sources with a higher max_pages value before relying on automatic SonarCloud project inference.',
+              `Alternatively call findingbridge_list_source_projects, confirm the intended key, and pass project_keys[${source.id}].`,
+            ],
+          }),
+        };
+      }
+
+      const match = findUniqueCurrentRepositoryProject(projectList.projects, repository);
+      if (match.status === 'matched') {
+        return { source: { ...source, project_key: match.project.key } };
+      }
+
+      if (match.status === 'ambiguous') {
+        return {
+          skipped: createSkippedSourceResult(source, {
+            message: `SonarCloud source ${source.id} matched multiple projects for ${repository.owner}/${repository.repo}.`,
+            nextSteps: [
+              `FindingBridge will not fuzzy auto-sync ambiguous SonarCloud projects: ${formatProjectCandidates(match.projects)}.`,
+              `Choose the intended project and pass project_keys[${source.id}] to findingbridge_sync_sources.`,
+            ],
+          }),
+        };
+      }
+
+      return {
+        skipped: createSkippedSourceResult(source, {
+          message: `SonarCloud source ${source.id} had no exact project match for ${repository.owner}/${repository.repo}.`,
+          nextSteps: [
+            `Call findingbridge_list_source_projects for ${source.id} to inspect visible SonarCloud projects.`,
+            `Pass the confirmed key as project_keys[${source.id}] to findingbridge_sync_sources or save it as this source project_key.`,
+          ],
+        }),
+      };
+    } catch (error: unknown) {
+      const message = redactSecrets(error instanceof Error ? error.message : String(error));
+      return {
+        skipped: createSkippedSourceResult(source, {
+          message,
+          nextSteps: this.nextStepsForError(source, error),
+        }),
+      };
+    }
   }
 
   private async syncOneSource(source: SourceConfig, options: SyncSourcesOptions): Promise<SourceSyncResult> {
@@ -367,24 +529,6 @@ export class SourceSyncService {
   }
 }
 
-function selectCurrentProjectSources(
-  sources: SourceConfig[],
-  repository: GitHubRepositoryIdentity | undefined,
-  projectKeys?: Record<string, string>
-): SourceConfig[] {
-  return sources.filter((source) => {
-    if (source.type === 'github') {
-      return repository !== undefined && matchesGitHubRepository(source, repository);
-    }
-
-    if (source.type === 'sonarcloud') {
-      return hasEffectiveProjectKey(source, projectKeys);
-    }
-
-    return false;
-  });
-}
-
 function hasEffectiveProjectKey(source: SourceConfig, projectKeys?: Record<string, string>): boolean {
   if (source.project_key?.trim()) {
     return true;
@@ -396,6 +540,86 @@ function hasEffectiveProjectKey(source: SourceConfig, projectKeys?: Record<strin
 function matchesGitHubRepository(source: SourceConfig, repository: GitHubRepositoryIdentity): boolean {
   return readStringOption(source, 'owner')?.toLowerCase() === repository.owner.toLowerCase()
     && readStringOption(source, 'repo')?.toLowerCase() === repository.repo.toLowerCase();
+}
+
+async function listSonarCloudProjects(
+  client: SonarCloudProjectListClient,
+  maxPages: number
+): Promise<SonarCloudProjectListResult> {
+  const projects: SonarCloudProject[] = [];
+  let page = 1;
+  let pagesFetched = 0;
+  let hasMore = false;
+
+  do {
+    const result = await client.listProjects(page);
+    projects.push(...result.projects);
+    hasMore = result.hasMore;
+    page += 1;
+    pagesFetched += 1;
+  } while (hasMore && pagesFetched < maxPages);
+
+  return { projects, truncated: hasMore };
+}
+
+function findUniqueCurrentRepositoryProject(
+  projects: SonarCloudProject[],
+  repository: GitHubRepositoryIdentity
+): SonarCloudProjectMatch {
+  const expectedExactValues = expectedProjectIdentityValues(repository);
+  const expectedNormalizedValues = new Set([...expectedExactValues].map(normalizeProjectIdentity));
+  const matches = projects.filter((project) => {
+    const values = [project.key, project.name, project.project].filter(isNonEmptyString);
+    return values.some((value) =>
+      expectedExactValues.has(value.toLowerCase()) || expectedNormalizedValues.has(normalizeProjectIdentity(value))
+    );
+  });
+
+  if (matches.length === 1) {
+    return { status: 'matched', project: matches[0] };
+  }
+
+  if (matches.length > 1) {
+    return { status: 'ambiguous', projects: matches };
+  }
+
+  return { status: 'missing' };
+}
+
+function expectedProjectIdentityValues(repository: GitHubRepositoryIdentity): Set<string> {
+  const owner = repository.owner.toLowerCase();
+  const repo = repository.repo.toLowerCase();
+  return new Set([repo, `${owner}/${repo}`, `${owner}_${repo}`, `${owner}-${repo}`, `${owner}:${repo}`]);
+}
+
+function normalizeProjectIdentity(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function formatProjectCandidates(projects: SonarCloudProject[]): string {
+  return projects.map((project) => `${redactSecrets(project.key)} (${redactSecrets(project.name)})`).join(', ');
+}
+
+function createSkippedSourceResult(
+  source: SourceConfig,
+  options: { message: string; nextSteps: string[] }
+): SourceSyncResult {
+  return {
+    source_id: source.id,
+    source_type: source.type,
+    status: 'skipped',
+    findings_found: 0,
+    findings_imported: 0,
+    findings_stale_marked: 0,
+    stale_isolation_applied: false,
+    pages_fetched: 0,
+    error_message: redactSecrets(options.message),
+    next_steps: options.nextSteps.map((step) => redactSecrets(step)),
+  };
 }
 
 async function detectCurrentGitHubRepository(): Promise<GitHubRepositoryIdentity | undefined> {
