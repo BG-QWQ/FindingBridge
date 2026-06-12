@@ -3,6 +3,34 @@ import { FindingStatus, UnifiedSeverity } from '../core/models/common.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
+const NO_FILTER_SENTINELS = new Set([
+  'undefined',
+  'null',
+  'none',
+  'n/a',
+  'na',
+  '$no_filter',
+  '__no_filter__',
+  '__omit__',
+  '__omit_rule_id__',
+  '__omit_file_path__',
+  '@@no_rule_filter@@',
+  '@@no_file_filter@@',
+  '>>>omit<<<',
+]);
+
+const OptionalFindingFilterSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || NO_FILTER_SENTINELS.has(trimmed.toLowerCase())) {
+    return undefined;
+  }
+
+  return trimmed;
+}, z.string().min(1).optional());
 
 /**
  * Validate finding list filters and pagination controls.
@@ -15,14 +43,10 @@ export const ListFindingsInputSchema = z.object({
   severity: z.array(UnifiedSeverity).optional(),
   tool: z.array(z.string().min(1)).optional(),
   status: z.array(FindingStatus).optional(),
-  rule_id: z
-    .string()
-    .min(1)
+  rule_id: OptionalFindingFilterSchema
     .describe('Exact scanner rule ID to match, such as js/sql-injection or python:S3776. This is not a prefix search or project key.')
     .optional(),
-  file_path: z
-    .string()
-    .min(1)
+  file_path: OptionalFindingFilterSchema
     .describe('Normalized finding location path to match against stored findings, such as src/db.ts or ensemble.py. This is not a scanner project or repository selector.')
     .optional(),
   limit: z.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
