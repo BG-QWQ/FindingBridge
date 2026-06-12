@@ -13,6 +13,7 @@ import { getFindingDetailTool } from '@/mcp-server/tools/get-finding-detail.js';
 import { generateReportTool } from '@/mcp-server/tools/generate-report.js';
 import { deduplicateFindingsTool } from '@/mcp-server/tools/deduplicate-findings.js';
 import { registerTriageWorkflowPrompt } from '@/mcp-server/prompts/triage-workflow.js';
+import { ListFindingsInputSchema } from '@/mcp-server/tool-schemas.js';
 import type { FindingBridgeToolEnvelope } from '@/mcp-server/tool-result.js';
 import type { FindingBridgeMcpContext } from '@/mcp-server/context.js';
 import type { Finding } from '@/core/models/finding.js';
@@ -136,6 +137,47 @@ describe('MCP no-data responses', () => {
       has_findings: false,
       agent_instruction: expect.stringContaining('no stored findings matched those filters'),
     });
+  });
+
+  it('normalizes accidental no-filter rule and file placeholders before listing findings', () => {
+    context.findings.upsert(createCodeQlFinding());
+
+    const data = unwrapData(
+      listFindingsTool(
+        context,
+        ListFindingsInputSchema.parse({
+          rule_id: ' undefined ',
+          file_path: ' ',
+          limit: 20,
+          offset: 0,
+          sort_by: 'priority_score',
+        })
+      )
+    );
+
+    expect(data.total).toBe(1);
+    expect(data.findings).toHaveLength(1);
+    expect(data.filters).toMatchObject({ rule_id: null, file_path: null });
+  });
+
+  it('preserves exact rule and path filters after trimming meaningful values', () => {
+    context.findings.upsert(createCodeQlFinding());
+
+    const data = unwrapData(
+      listFindingsTool(
+        context,
+        ListFindingsInputSchema.parse({
+          rule_id: ' js/sql-injection ',
+          file_path: ' src/db.ts ',
+          limit: 20,
+          offset: 0,
+          sort_by: 'priority_score',
+        })
+      )
+    );
+
+    expect(data.total).toBe(1);
+    expect(data.filters).toMatchObject({ rule_id: 'js/sql-injection', file_path: 'src/db.ts' });
   });
 
   it('excludes stale findings from summary and list defaults while allowing explicit list inclusion', () => {
