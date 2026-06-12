@@ -37,6 +37,11 @@ const SaveSetupRequestSchema = z.object({
 type SetupSourceInput = z.infer<typeof SetupSourceSchema>;
 type GitHubRepositorySelectionInput = z.infer<typeof GitHubRepositorySelectionSchema>;
 
+type PreparedSetupSources = {
+  sources: SourceConfig[];
+  storage?: TokenStorage;
+};
+
 type ApiRoute = {
   path: string;
   method: string;
@@ -343,56 +348,18 @@ async function handleSaveSetup(req: IncomingMessage, res: ServerResponse): Promi
     let actualTokenStorage = parsed.data.token_storage;
 
     for (const source of parsed.data.sources) {
-      const existingSource = sourceMap.get(source.id);
-      if (source.type === 'github') {
-        if (hasSensitiveOptionKey(source.options)) {
-          throw new SetupValidationError(`Options for ${source.name ?? source.id} include secret-shaped keys. Put scanner tokens in the token field instead.`);
-        }
-
-        const repositories = readGitHubRepositorySelections(source);
-        const reusableExistingSource = existingSource ?? findExistingGitHubTokenSource(loadedConfig.config.sources, repositories);
-        const resolvedToken = await resolveTokenRef({
-          source,
-          existingSource: reusableExistingSource,
-          tokenStorage: parsed.data.token_storage,
-          credentialStore,
-          warnings,
-        });
-        if (resolvedToken.storage) {
-          actualTokenStorage = resolvedToken.storage;
-        }
-
-        sources.push(...expandGitHubSetupSources({
-          baseId: source.id,
-          displayName: source.name ?? source.id,
-          repositories,
-          existingSources: loadedConfig.config.sources,
-          tokenRef: resolvedToken.tokenRef,
-        }));
-        continue;
-      }
-
-      const resolvedToken = await resolveTokenRef({
+      const prepared = await prepareSetupSource({
         source,
-        existingSource,
+        existingSource: sourceMap.get(source.id),
+        existingSources: loadedConfig.config.sources,
         tokenStorage: parsed.data.token_storage,
         credentialStore,
         warnings,
       });
-      if (resolvedToken.storage) {
-        actualTokenStorage = resolvedToken.storage;
+      if (prepared.storage) {
+        actualTokenStorage = prepared.storage;
       }
-
-      sources.push({
-        id: source.id,
-        type: source.type,
-        name: source.name,
-        enabled: source.enabled,
-        path: source.path,
-        project_key: source.project_key,
-        token_ref: resolvedToken.tokenRef,
-        options: sanitizeSourceOptions(source),
-      });
+      sources.push(...prepared.sources);
     }
 
     const managedTypes = new Set<ScannerType>(['sarif', 'github', 'sonarcloud']);
@@ -416,6 +383,65 @@ async function handleSaveSetup(req: IncomingMessage, res: ServerResponse): Promi
     const message = err instanceof Error ? err.message : 'Failed to save setup';
     sendError(res, err instanceof SetupValidationError ? 400 : 500, message);
   }
+}
+
+async function prepareSetupSource(params: {
+  source: SetupSourceInput;
+  existingSource?: SourceConfig;
+  existingSources: SourceConfig[];
+  tokenStorage: TokenStorage;
+  credentialStore: CredentialStore;
+  warnings: string[];
+}): Promise<PreparedSetupSources> {
+  const { source } = params;
+
+  if (source.type === 'github') {
+    return await prepareGitHubSetupSource(params);
+  }
+
+  const resolvedToken = await resolveTokenRef(params);
+  return {
+    sources: [{
+      id: source.id,
+      type: source.type,
+      name: source.name,
+      enabled: source.enabled,
+      path: source.path,
+      project_key: source.project_key,
+      token_ref: resolvedToken.tokenRef,
+      options: sanitizeSourceOptions(source),
+    }],
+    storage: resolvedToken.storage,
+  };
+}
+
+async function prepareGitHubSetupSource(params: {
+  source: SetupSourceInput;
+  existingSource?: SourceConfig;
+  existingSources: SourceConfig[];
+  tokenStorage: TokenStorage;
+  credentialStore: CredentialStore;
+  warnings: string[];
+}): Promise<PreparedSetupSources> {
+  const { source, existingSource, existingSources } = params;
+  if (hasSensitiveOptionKey(source.options)) {
+    throw new SetupValidationError(`Options for ${source.name ?? source.id} include secret-shaped keys. Put scanner tokens in the token field instead.`);
+  }
+
+  const repositories = readGitHubRepositorySelections(source);
+  const reusableExistingSource = existingSource ?? findExistingGitHubTokenSource(existingSources, repositories);
+  const resolvedToken = await resolveTokenRef({ ...params, existingSource: reusableExistingSource });
+
+  return {
+    sources: expandGitHubSetupSources({
+      baseId: source.id,
+      displayName: source.name ?? source.id,
+      repositories,
+      existingSources,
+      tokenRef: resolvedToken.tokenRef,
+    }),
+    storage: resolvedToken.storage,
+  };
 }
 
 function upsertSources(existingSources: SourceConfig[], nextSources: SourceConfig[]): SourceConfig[] {
