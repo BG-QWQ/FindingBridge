@@ -19,7 +19,7 @@ As a developer, you’ve probably been overwhelmed by security scanner alerts. S
 
 ### Method 1: Download & Run (Recommended for beginners)
 
-1. Download the release for your platform from [Releases](https://github.com/yourname/findingbridge/releases)
+1. Download the release for your platform from [Releases](https://github.com/BG-QWQ/findingbridge/releases)
 2. Extract and run `findingbridge` (or `findingbridge.exe` on Windows)
 3. Follow the web setup wizard at `http://localhost:3456/setup`
 4. Ask Claude: *"What are my most critical security findings?"*
