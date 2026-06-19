@@ -119,6 +119,26 @@ describe('configuration migration', () => {
     expect(loaded.filepath).toBe(join(tempDir, LEGACY_CONFIG_FILE_NAME));
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Loaded legacy configuration for oh-my-triage'));
   });
+
+  it('rewrites legacy database_path and token_ref prefixes in migrated config', async () => {
+    const legacyConfig: Config = {
+      ...createConfig('legacy'),
+      database_path: getLegacyDatabasePath(),
+      sources: [
+        { id: 'github', type: 'github', enabled: true, token_ref: 'FINDINGBRIDGE_TOKEN_GITHUB', options: {} },
+        { id: 'sonar', type: 'sonarcloud', enabled: true, token_ref: 'OMT_TOKEN_SONAR', options: {} },
+      ],
+    };
+    writeTextFile(getLegacyConfigPath(), `${JSON.stringify(legacyConfig, null, 2)}\n`);
+
+    await migrateLegacyConfig();
+
+    const migrated = readJsonConfig(getDefaultConfigPath());
+    expect(migrated.database_path).toBe(getDefaultDatabasePath());
+    expect(migrated.sources[0]?.token_ref).toBe('OMT_TOKEN_GITHUB');
+    expect(migrated.sources[1]?.token_ref).toBe('OMT_TOKEN_SONAR');
+  });
+
 });
 
 function createConfig(id: string): Config {
