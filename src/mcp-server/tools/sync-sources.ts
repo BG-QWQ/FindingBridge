@@ -1,12 +1,12 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { FindingBridgeMcpContext } from '../context.js';
+import type { OMTMcpContext } from '../context.js';
 import type { SyncSourcesInput } from '../tool-schemas.js';
 import { toolException, toolSuccess } from '../tool-result.js';
 import { SourceSyncService } from '../../sync/source-sync.js';
 
-/** Synchronize configured scanner sources into the local FindingBridge database. */
+/** Synchronize configured scanner sources into the local oh-my-triage database. */
 export async function syncSourcesTool(
-  context: FindingBridgeMcpContext,
+  context: OMTMcpContext,
   input: SyncSourcesInput
 ): Promise<CallToolResult> {
   try {
@@ -33,15 +33,15 @@ export async function syncSourcesTool(
       repository_modified: false,
       database_modified: result.sources_total > 0,
       recommended_next_steps: [
-        'Call findingbridge_summary to inspect synchronized finding counts.',
-        'Then call findingbridge_list_findings for the synchronized finding details.',
+        'Call omt_summary to inspect synchronized finding counts.',
+        'Then call omt_list_findings for the synchronized finding details.',
       ],
     });
   } catch (error: unknown) {
     return toolException(error, [
-      'Verify FindingBridge scanner sources are configured and enabled.',
-      'Run findingbridge config test to check scanner credentials.',
-      'Use findingbridge ingest --sarif path/to/results.sarif if the scanner can only export SARIF.',
+      'Verify oh-my-triage scanner sources are configured and enabled.',
+      'Run oh-my-triage config test to check scanner credentials.',
+      'Use oh-my-triage ingest --sarif path/to/results.sarif if the scanner can only export SARIF.',
     ]);
   }
 }

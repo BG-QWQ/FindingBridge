@@ -1,5 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { FindingBridgeMcpContext } from '../context.js';
+import type { OMTMcpContext } from '../context.js';
 import type { ListFindingsInput } from '../tool-schemas.js';
 import { toolException, toolSuccess } from '../tool-result.js';
 import { findingDataAvailability, findingProvenanceWarnings, globalFindingScope, summarizeFinding } from './shared.js';
@@ -13,7 +13,7 @@ import { findingDataAvailability, findingProvenanceWarnings, globalFindingScope,
  * than scanner project keys or repository names.
  */
 export function listFindingsTool(
-  context: FindingBridgeMcpContext,
+  context: OMTMcpContext,
   input: ListFindingsInput
 ): CallToolResult {
   try {
@@ -54,7 +54,7 @@ export function listFindingsTool(
     });
   } catch (error: unknown) {
     return toolException(error, [
-      'Verify the FindingBridge database path is correct.',
+      'Verify the oh-my-triage database path is correct.',
       'Run an ingest command before listing findings if the database is empty.',
     ]);
   }

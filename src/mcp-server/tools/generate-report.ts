@@ -2,7 +2,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { generateMarkdownReport } from '../../core/reporting/markdown-report.js';
 import { generateReportSummary, getTopPriorities } from '../../core/reporting/report-summary.js';
 import { redactSecrets } from '../../utils/redaction.js';
-import type { FindingBridgeMcpContext } from '../context.js';
+import type { OMTMcpContext } from '../context.js';
 import type { GenerateReportInput } from '../tool-schemas.js';
 import { toolException, toolSuccess } from '../tool-result.js';
 import { listFindingsForScope, summarizeFinding } from './shared.js';
@@ -14,7 +14,7 @@ import { listFindingsForScope, summarizeFinding } from './shared.js';
  * decide where to display or persist results without server-side side effects.
  */
 export function generateReportTool(
-  context: FindingBridgeMcpContext,
+  context: OMTMcpContext,
   input: GenerateReportInput
 ): CallToolResult {
   try {
@@ -61,7 +61,7 @@ export function generateReportTool(
   } catch (error: unknown) {
     return toolException(error, [
       'Narrow the report scope if the database has a very large number of findings.',
-      'Call findingbridge_list_findings to verify the requested report scope.',
+      'Call omt_list_findings to verify the requested report scope.',
     ]);
   }
 }

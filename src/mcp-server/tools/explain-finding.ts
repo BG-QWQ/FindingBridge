@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { redactSecrets } from '../../utils/redaction.js';
-import type { FindingBridgeMcpContext } from '../context.js';
+import type { OMTMcpContext } from '../context.js';
 import type { ExplainFindingInput } from '../tool-schemas.js';
 import { toolError, toolException, toolSuccess } from '../tool-result.js';
 import { formatFindingLocation, getFinding, summarizeFinding } from './shared.js';
@@ -8,18 +8,18 @@ import { formatFindingLocation, getFinding, summarizeFinding } from './shared.js
 /**
  * Explain a finding using local normalized metadata only.
  *
- * This tool deliberately avoids external LLM calls so FindingBridge remains
+ * This tool deliberately avoids external LLM calls so oh-my-triage remains
  * self-hosted and does not upload scanner findings to third-party services.
  */
 export function explainFindingTool(
-  context: FindingBridgeMcpContext,
+  context: OMTMcpContext,
   input: ExplainFindingInput
 ): CallToolResult {
   try {
     const finding = getFinding(context, input.finding_id, { includeStale: input.include_stale });
     if (!finding) {
       return toolError('finding_not_found', `Finding '${input.finding_id}' was not found.`, [
-        'Call findingbridge_list_findings to discover valid finding IDs.',
+        'Call omt_list_findings to discover valid finding IDs.',
         'If you intentionally need historical findings, retry with include_stale set to true.',
       ]);
     }
@@ -59,7 +59,7 @@ export function explainFindingTool(
     });
   } catch (error: unknown) {
     return toolException(error, [
-      'Call findingbridge_get_finding_detail for the same ID to inspect available metadata.',
+      'Call omt_get_finding_detail for the same ID to inspect available metadata.',
     ]);
   }
 }

@@ -2,7 +2,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { Rule } from '../../core/models/rule.js';
 import type { Finding } from '../../core/models/finding.js';
 import { redactSecrets } from '../../utils/redaction.js';
-import type { FindingBridgeMcpContext } from '../context.js';
+import type { OMTMcpContext } from '../context.js';
 import type { GetFindingDetailInput } from '../tool-schemas.js';
 import { toolError, toolException, toolSuccess } from '../tool-result.js';
 import { formatFindingLocation, getFinding, safeCodeSnippet, summarizeFinding } from './shared.js';
@@ -11,17 +11,17 @@ import { formatFindingLocation, getFinding, safeCodeSnippet, summarizeFinding } 
  * Return redacted detail for one finding.
  *
  * Code context is capped at 20 lines and passed through secret redaction to keep
- * MCP responses aligned with FindingBridge privacy rules.
+ * MCP responses aligned with oh-my-triage privacy rules.
  */
 export function getFindingDetailTool(
-  context: FindingBridgeMcpContext,
+  context: OMTMcpContext,
   input: GetFindingDetailInput
 ): CallToolResult {
   try {
     const finding = getFinding(context, input.finding_id, { includeStale: input.include_stale });
     if (!finding) {
       return toolError('finding_not_found', `Finding '${input.finding_id}' was not found.`, [
-        'Call findingbridge_list_findings to discover valid finding IDs.',
+        'Call omt_list_findings to discover valid finding IDs.',
         'If you intentionally need historical findings, retry with include_stale set to true.',
         'Re-run ingestion if the finding should exist but is missing.',
       ]);
@@ -40,8 +40,8 @@ export function getFindingDetailTool(
     });
   } catch (error: unknown) {
     return toolException(error, [
-      'Call findingbridge_list_findings to confirm the finding ID.',
-      'Verify the FindingBridge database is readable.',
+      'Call omt_list_findings to confirm the finding ID.',
+      'Verify the oh-my-triage database is readable.',
     ]);
   }
 }

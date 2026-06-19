@@ -10,15 +10,15 @@ import type { SourceConfig, TokenStorage } from '../config/validation.js';
  * Repositories are created once per server so every tool sees the same SQLite
  * connection and avoids duplicating initialization logic.
  */
-export interface FindingBridgeMcpContext {
+export interface OMTMcpContext {
   db: Database.Database;
   findings: FindingRepository;
   rules: RuleRepository;
-  runtime: FindingBridgeRuntimeMetadata;
+  runtime: OMTRuntimeMetadata;
 }
 
 /** Runtime metadata needed to explain which local data source backs MCP responses. */
-export interface FindingBridgeRuntimeMetadata {
+export interface OMTRuntimeMetadata {
   databasePath?: string;
   configuredSources: SourceConfig[];
   tokenStorage: TokenStorage;
@@ -31,7 +31,7 @@ export interface FindingBridgeRuntimeMetadata {
  * Tests and embedded callers can provide an existing SQLite connection, while
  * the stdio entrypoint can pass a database path and let the context own setup.
  */
-export interface CreateFindingBridgeMcpContextOptions {
+export interface CreateOMTMcpContextOptions {
   db?: Database.Database;
   dbPath?: string;
   configuredSources?: SourceConfig[];
@@ -45,10 +45,10 @@ export interface CreateFindingBridgeMcpContextOptions {
  * The default database path supports local development and MCP Inspector smoke
  * tests without additional configuration.
  */
-export function createFindingBridgeMcpContext(
-  options: CreateFindingBridgeMcpContextOptions = {}
-): FindingBridgeMcpContext {
-  const db = options.db ?? createConnection(options.dbPath ?? 'findingbridge.db');
+export function createOMTMcpContext(
+  options: CreateOMTMcpContextOptions = {}
+): OMTMcpContext {
+  const db = options.db ?? createConnection(options.dbPath ?? 'oh-my-triage.db');
 
   return {
     db,
