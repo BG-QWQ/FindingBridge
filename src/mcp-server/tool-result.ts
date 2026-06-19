@@ -2,12 +2,12 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { redactSecrets } from '../utils/redaction.js';
 
 /**
- * Represent a structured FindingBridge tool response envelope.
+ * Represent a structured oh-my-triage tool response envelope.
  *
  * The envelope gives MCP clients a consistent success flag and data/error slot
  * while preserving each tool's domain-specific payload in structured JSON.
  */
-export type FindingBridgeToolEnvelope<T extends Record<string, unknown>> =
+export type OMTToolEnvelope<T extends Record<string, unknown>> =
   | {
       success: true;
       data: T;
@@ -28,7 +28,7 @@ export type FindingBridgeToolEnvelope<T extends Record<string, unknown>> =
  * readable while remaining compatible with clients that only display text.
  */
 export function toolSuccess<T extends Record<string, unknown>>(data: T): CallToolResult {
-  const envelope: FindingBridgeToolEnvelope<T> = {
+  const envelope: OMTToolEnvelope<T> = {
     success: true,
     data,
   };
@@ -46,7 +46,7 @@ export function toolSuccess<T extends Record<string, unknown>>(data: T): CallToo
  * in scanner metadata, exception messages, or database diagnostics.
  */
 export function toolError(code: string, message: string, nextSteps: string[]): CallToolResult {
-  const envelope: FindingBridgeToolEnvelope<Record<string, never>> = {
+  const envelope: OMTToolEnvelope<Record<string, never>> = {
     success: false,
     error: {
       code,

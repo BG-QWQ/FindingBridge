@@ -1,7 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { redactSecrets } from '../../utils/redaction.js';
 import type { FixPattern } from '../../core/models/rule.js';
-import type { FindingBridgeMcpContext } from '../context.js';
+import type { OMTMcpContext } from '../context.js';
 import type { SuggestFixInput } from '../tool-schemas.js';
 import { toolError, toolException, toolSuccess } from '../tool-result.js';
 import { getFinding, summarizeFinding } from './shared.js';
@@ -10,17 +10,17 @@ import { getFinding, summarizeFinding } from './shared.js';
  * Suggest remediation guidance without generating a patch.
  *
  * Suggestions combine stored finding guidance and rule fix patterns so agents
- * can plan remediation while FindingBridge remains a read-only triage layer.
+ * can plan remediation while oh-my-triage remains a read-only triage layer.
  */
 export function suggestFixTool(
-  context: FindingBridgeMcpContext,
+  context: OMTMcpContext,
   input: SuggestFixInput
 ): CallToolResult {
   try {
     const finding = getFinding(context, input.finding_id, { includeStale: input.include_stale });
     if (!finding) {
       return toolError('finding_not_found', `Finding '${input.finding_id}' was not found.`, [
-        'Call findingbridge_list_findings to discover valid finding IDs.',
+        'Call omt_list_findings to discover valid finding IDs.',
         'If you intentionally need historical findings, retry with include_stale set to true.',
       ]);
     }
@@ -48,7 +48,7 @@ export function suggestFixTool(
     });
   } catch (error: unknown) {
     return toolException(error, [
-      'Call findingbridge_get_finding_detail to inspect available fix metadata.',
+      'Call omt_get_finding_detail to inspect available fix metadata.',
     ]);
   }
 }

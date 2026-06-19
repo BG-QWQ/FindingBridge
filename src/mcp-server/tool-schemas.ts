@@ -162,7 +162,7 @@ export const GenerateReportInputSchema = z.object({
 /**
  * Validate source synchronization controls.
  *
- * The tool writes scanner results into the local FindingBridge database only;
+ * The tool writes scanner results into the local oh-my-triage database only;
  * it never modifies user repositories or external scanner state.
  */
 export const SyncSourcesInputSchema = z.object({
@@ -176,7 +176,7 @@ export const SyncSourcesInputSchema = z.object({
  * Validate scanner project discovery controls.
  *
  * Project discovery calls scanner APIs with configured credentials and returns
- * project identifiers without modifying local FindingBridge state.
+ * project identifiers without modifying local oh-my-triage state.
  */
 export const ListSourceProjectsInputSchema = z.object({
   source_ids: z.array(z.string().min(1)).max(20).optional(),

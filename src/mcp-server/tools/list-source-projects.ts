@@ -1,12 +1,12 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { FindingBridgeMcpContext } from '../context.js';
+import type { OMTMcpContext } from '../context.js';
 import type { ListSourceProjectsInput } from '../tool-schemas.js';
 import { toolException, toolSuccess } from '../tool-result.js';
 import { ProjectDiscoveryService } from '../../sync/project-discovery.js';
 
 /** List scanner projects visible to configured source credentials. */
 export async function listSourceProjectsTool(
-  context: FindingBridgeMcpContext,
+  context: OMTMcpContext,
   input: ListSourceProjectsInput
 ): Promise<CallToolResult> {
   try {
@@ -32,14 +32,14 @@ export async function listSourceProjectsTool(
       recommended_next_steps: [
         'For SonarCloud, provide organizations[source_id] when the source configuration does not include an organization.',
         'Choose every discovered project key that matches the current workspace repository across configured scanner sources.',
-        'Call findingbridge_sync_sources without source_ids and pass project_keys: { [source_id]: selected_project_keys[source_id] } for each matching source that needs a key.',
+        'Call omt_sync_sources without source_ids and pass project_keys: { [source_id]: selected_project_keys[source_id] } for each matching source that needs a key.',
       ],
     });
   } catch (error: unknown) {
     return toolException(error, [
       'Verify the scanner source is configured and enabled.',
-      'Run findingbridge config set-token <source> if the source token is missing.',
-      'Retry findingbridge_list_source_projects after fixing credentials.',
+      'Run oh-my-triage config set-token <source> if the source token is missing.',
+      'Retry omt_list_source_projects after fixing credentials.',
     ]);
   }
 }

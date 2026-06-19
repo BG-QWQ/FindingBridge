@@ -2,7 +2,7 @@ import type { Finding } from '../../core/models/finding.js';
 import type { SourceType } from '../../core/models/common.js';
 import { getSourceDisplayName } from '../../core/normalization/source-metadata.js';
 import { redactCodeSnippet, redactSecrets } from '../../utils/redaction.js';
-import type { FindingBridgeMcpContext } from '../context.js';
+import type { OMTMcpContext } from '../context.js';
 
 const MAX_SCOPE_LIMIT = 1000;
 
@@ -30,7 +30,7 @@ export interface FindingSummary {
 }
 
 /** Explain the database scope represented by a read-only MCP response. */
-export interface FindingBridgeDataScope {
+export interface OMTDataScope {
   type: 'global_database';
   project_scope_supported: false;
   current_project_matched: false;
@@ -39,14 +39,14 @@ export interface FindingBridgeDataScope {
 }
 
 /** Describe whether a response contains usable findings for the requested scope. */
-export interface FindingBridgeDataAvailability {
+export interface OMTDataAvailability {
   has_findings: boolean;
   no_data_reason: string | null;
   agent_instruction: string;
 }
 
 /** Warn callers when stored findings do not match the configured scanner sources. */
-export interface FindingBridgeProvenanceWarning {
+export interface OMTProvenanceWarning {
   code: 'demo_data' | 'source_tool_mismatch' | 'unconfigured_findings';
   message: string;
   configured_sources: Array<{ id: string; type: string; expected_tools: string[] }>;
@@ -67,42 +67,42 @@ const SOURCE_TOOL_ALIASES: Record<SourceType, string[]> = {
 };
 
 /** Build scope metadata that requires user confirmation before current-workspace claims. */
-export function globalFindingScope(): FindingBridgeDataScope {
+export function globalFindingScope(): OMTDataScope {
   return {
     type: 'global_database',
     project_scope_supported: false,
     current_project_matched: false,
     message:
-      'FindingBridge is returning data from its configured local findings database. It cannot verify that this data matches the current workspace repository/project under review.',
+      'oh-my-triage is returning data from its configured local findings database. It cannot verify that this data matches the current workspace repository/project under review.',
     agent_instruction:
-      'Confirm the current workspace repository/project with the user before relying on these findings. Do not claim these findings apply to the current project unless the user confirms this FindingBridge database was populated or synchronized for that repository/project.',
+      'Confirm the current workspace repository/project with the user before relying on these findings. Do not claim these findings apply to the current project unless the user confirms this oh-my-triage database was populated or synchronized for that repository/project.',
   };
 }
 
 /** Build explicit data-availability metadata for list and summary responses. */
-export function findingDataAvailability(totalFindings: number): FindingBridgeDataAvailability {
+export function findingDataAvailability(totalFindings: number): OMTDataAvailability {
   if (totalFindings > 0) {
     return {
       has_findings: true,
       no_data_reason: null,
       agent_instruction:
-        'Report only the findings returned by FindingBridge. Do not add vulnerabilities that are not present in this response. If the user asked for current or latest scanner platform results and you have not already synchronized this turn, call findingbridge_sync_sources before relying on this data.',
+        'Report only the findings returned by oh-my-triage. Do not add vulnerabilities that are not present in this response. If the user asked for current or latest scanner platform results and you have not already synchronized this turn, call omt_sync_sources before relying on this data.',
     };
   }
 
   return {
     has_findings: false,
-    no_data_reason: 'No stored findings matched this FindingBridge database request.',
+    no_data_reason: 'No stored findings matched this oh-my-triage database request.',
     agent_instruction:
-      'Report that FindingBridge returned no findings for this request. If filters were provided, say no stored findings matched those filters. If the user asked for current or latest scanner platform results, call findingbridge_sync_sources before concluding the scanner platform has no findings. Do not invent vulnerabilities, file paths, severities, or remediation steps.',
+      'Report that oh-my-triage returned no findings for this request. If filters were provided, say no stored findings matched those filters. If the user asked for current or latest scanner platform results, call omt_sync_sources before concluding the scanner platform has no findings. Do not invent vulnerabilities, file paths, severities, or remediation steps.',
   };
 }
 
 /** Detect demo, stale, or unconfigured finding provenance for MCP responses. */
 export function findingProvenanceWarnings(
-  context: FindingBridgeMcpContext,
+  context: OMTMcpContext,
   options: { includeStale?: boolean } = {}
-): FindingBridgeProvenanceWarning[] {
+): OMTProvenanceWarning[] {
   const observedTools = context.findings.listTools({ includeStale: options.includeStale });
   const redactedObservedTools = observedTools.map((tool) => redactSecrets(tool));
   if (observedTools.length === 0) {
@@ -126,7 +126,7 @@ export function findingProvenanceWarnings(
         observed_tools: redactedObservedTools,
         remediation_steps: demoDataRemediationSteps(),
         agent_instruction:
-          'Tell the user these are demo findings. Do not present them as code review platform results. Restart without demo mode and call findingbridge_sync_sources before reading current platform findings.',
+          'Tell the user these are demo findings. Do not present them as code review platform results. Restart without demo mode and call omt_sync_sources before reading current platform findings.',
       },
     ];
   }
@@ -140,7 +140,7 @@ export function findingProvenanceWarnings(
         observed_tools: redactedObservedTools,
         remediation_steps: staleDatabaseRemediationSteps(),
         agent_instruction:
-          'Treat these as local/stale/imported findings until the user confirms which scanner produced them. If configured sources exist, call findingbridge_sync_sources before reporting current platform findings. Tell the user to clear or replace the stale database before importing current scanner results.',
+          'Treat these as local/stale/imported findings until the user confirms which scanner produced them. If configured sources exist, call omt_sync_sources before reporting current platform findings. Tell the user to clear or replace the stale database before importing current scanner results.',
       },
     ];
   }
@@ -155,32 +155,32 @@ export function findingProvenanceWarnings(
     {
       code: 'source_tool_mismatch',
       message:
-        'The database contains findings from scanner tools that do not match the currently configured FindingBridge sources.',
+        'The database contains findings from scanner tools that do not match the currently configured oh-my-triage sources.',
       configured_sources: configuredSources,
       observed_tools: redactedObservedTools,
       remediation_steps: staleDatabaseRemediationSteps(),
       agent_instruction:
-        'Warn the user that these findings may be stale, demo, or manually imported data rather than results from the configured code review platform. Call findingbridge_sync_sources before reporting current platform findings; if synchronization cannot fix the mismatch, tell them to clear or replace the stale database, then import current platform results before relying on the findings.',
+        'Warn the user that these findings may be stale, demo, or manually imported data rather than results from the configured code review platform. Call omt_sync_sources before reporting current platform findings; if synchronization cannot fix the mismatch, tell them to clear or replace the stale database, then import current platform results before relying on the findings.',
     },
   ];
 }
 
 function staleDatabaseRemediationSteps(): string[] {
   return [
-    'Call `findingbridge_sync_sources` before reading summary or list data when the user asks for current or latest scanner platform results.',
+    'Call `omt_sync_sources` before reading summary or list data when the user asks for current or latest scanner platform results.',
     'Do not treat the current findings as results from the configured code review platform until the database has been rebuilt from that platform.',
-    'Find the configured database path with `findingbridge config show`, then back up and delete that stale SQLite database file, or start the MCP server with a fresh database path using `findingbridge server --db path/to/findingbridge.db`.',
-    'If the platform can export SARIF, export the latest results and import them with `findingbridge ingest --sarif path/to/results.sarif --db path/to/findingbridge.db` before restarting the MCP server.',
-    'If the platform cannot export SARIF and FindingBridge has no adapter for it, add a scanner adapter before claiming platform-backed findings.',
+    'Find the configured database path with `oh-my-triage config show`, then back up and delete that stale SQLite database file, or start the MCP server with a fresh database path using `oh-my-triage server --db path/to/oh-my-triage.db`.',
+    'If the platform can export SARIF, export the latest results and import them with `oh-my-triage ingest --sarif path/to/results.sarif --db path/to/oh-my-triage.db` before restarting the MCP server.',
+    'If the platform cannot export SARIF and oh-my-triage has no adapter for it, add a scanner adapter before claiming platform-backed findings.',
   ];
 }
 
 function demoDataRemediationSteps(): string[] {
   return [
-    'Restart FindingBridge without `--demo` before using real scanner results.',
-    'Call `findingbridge_sync_sources` after restarting without demo mode and before reading summary or list data.',
-    'Use a real configured database, or pass one explicitly with `findingbridge server --db path/to/findingbridge.db`.',
-    'Import current scanner results first, for example `findingbridge ingest --sarif path/to/results.sarif --db path/to/findingbridge.db` when the platform can export SARIF.',
+    'Restart oh-my-triage without `--demo` before using real scanner results.',
+    'Call `omt_sync_sources` after restarting without demo mode and before reading summary or list data.',
+    'Use a real configured database, or pass one explicitly with `oh-my-triage server --db path/to/oh-my-triage.db`.',
+    'Import current scanner results first, for example `oh-my-triage ingest --sarif path/to/results.sarif --db path/to/oh-my-triage.db` when the platform can export SARIF.',
   ];
 }
 
@@ -232,7 +232,7 @@ export function summarizeFinding(finding: Finding): FindingSummary {
  * instead of surfacing repository implementation details.
  */
 export function getFinding(
-  context: FindingBridgeMcpContext,
+  context: OMTMcpContext,
   findingId: string,
   options: { includeStale?: boolean } = {}
 ): Finding | undefined {
@@ -264,7 +264,7 @@ export function safeCodeSnippet(finding: Finding, contextLines: number): string 
  * filters because callers are asking for an exact working set.
  */
 export function listFindingsForScope(
-  context: FindingBridgeMcpContext,
+  context: OMTMcpContext,
   scope: {
     finding_ids?: string[];
     severity?: Finding['severity'][];

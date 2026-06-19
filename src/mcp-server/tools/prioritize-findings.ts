@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { prioritizeFindings } from '../../core/prioritization/prioritizer.js';
-import type { FindingBridgeMcpContext } from '../context.js';
+import type { OMTMcpContext } from '../context.js';
 import type { PrioritizeFindingsInput } from '../tool-schemas.js';
 import { toolException, toolSuccess } from '../tool-result.js';
 import { getFinding, summarizeFinding } from './shared.js';
@@ -12,7 +12,7 @@ import { getFinding, summarizeFinding } from './shared.js';
  * without treating the entire prioritization request as a protocol error.
  */
 export function prioritizeFindingsTool(
-  context: FindingBridgeMcpContext,
+  context: OMTMcpContext,
   input: PrioritizeFindingsInput
 ): CallToolResult {
   try {
@@ -37,7 +37,7 @@ export function prioritizeFindingsTool(
     });
   } catch (error: unknown) {
     return toolException(error, [
-      'Call findingbridge_list_findings to refresh the finding IDs before prioritizing.',
+      'Call omt_list_findings to refresh the finding IDs before prioritizing.',
     ]);
   }
 }

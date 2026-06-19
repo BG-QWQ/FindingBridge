@@ -14,31 +14,31 @@ import { generateReportTool } from '@/mcp-server/tools/generate-report.js';
 import { deduplicateFindingsTool } from '@/mcp-server/tools/deduplicate-findings.js';
 import { registerTriageWorkflowPrompt } from '@/mcp-server/prompts/triage-workflow.js';
 import { ListFindingsInputSchema } from '@/mcp-server/tool-schemas.js';
-import type { FindingBridgeToolEnvelope } from '@/mcp-server/tool-result.js';
-import type { FindingBridgeMcpContext } from '@/mcp-server/context.js';
+import type { OMTToolEnvelope } from '@/mcp-server/tool-result.js';
+import type { OMTMcpContext } from '@/mcp-server/context.js';
 import type { Finding } from '@/core/models/finding.js';
 
 function unwrapData(result: CallToolResult): Record<string, unknown> {
-  const envelope = result.structuredContent as FindingBridgeToolEnvelope<Record<string, unknown>> | undefined;
+  const envelope = result.structuredContent as OMTToolEnvelope<Record<string, unknown>> | undefined;
   expect(envelope?.success).toBe(true);
   if (!envelope?.success) {
-    throw new Error('Expected successful FindingBridge tool envelope.');
+    throw new Error('Expected successful oh-my-triage tool envelope.');
   }
   return envelope.data;
 }
 
-function unwrapFailure(result: CallToolResult): Extract<FindingBridgeToolEnvelope<Record<string, unknown>>, { success: false }> {
-  const envelope = result.structuredContent as FindingBridgeToolEnvelope<Record<string, unknown>> | undefined;
+function unwrapFailure(result: CallToolResult): Extract<OMTToolEnvelope<Record<string, unknown>>, { success: false }> {
+  const envelope = result.structuredContent as OMTToolEnvelope<Record<string, unknown>> | undefined;
   expect(envelope?.success).toBe(false);
   if (!envelope || envelope.success) {
-    throw new Error('Expected failed FindingBridge tool envelope.');
+    throw new Error('Expected failed oh-my-triage tool envelope.');
   }
   return envelope;
 }
 
 describe('MCP no-data responses', () => {
   let db: Database.Database;
-  let context: FindingBridgeMcpContext;
+  let context: OMTMcpContext;
 
   beforeEach(() => {
     db = createConnection(':memory:');
@@ -73,8 +73,8 @@ describe('MCP no-data responses', () => {
     expect(data.has_findings).toBe(false);
     expect(data.data_availability).toMatchObject({
       has_findings: false,
-      no_data_reason: 'No stored findings matched this FindingBridge database request.',
-      agent_instruction: expect.stringContaining('call findingbridge_sync_sources before concluding the scanner platform has no findings'),
+      no_data_reason: 'No stored findings matched this oh-my-triage database request.',
+      agent_instruction: expect.stringContaining('call omt_sync_sources before concluding the scanner platform has no findings'),
     });
     expect(data.scope).toMatchObject({
       type: 'global_database',
@@ -92,7 +92,7 @@ describe('MCP no-data responses', () => {
     expect(data.has_findings).toBe(false);
     expect(data.data_availability).toMatchObject({
       has_findings: false,
-      agent_instruction: expect.stringContaining('call findingbridge_sync_sources before concluding the scanner platform has no findings'),
+      agent_instruction: expect.stringContaining('call omt_sync_sources before concluding the scanner platform has no findings'),
     });
     expect(data.scope).toMatchObject({
       type: 'global_database',
@@ -306,11 +306,11 @@ describe('MCP no-data responses', () => {
         code: 'source_tool_mismatch',
         observed_tools: ['CodeQL'],
         remediation_steps: expect.arrayContaining([
-          expect.stringContaining('findingbridge_sync_sources'),
+          expect.stringContaining('omt_sync_sources'),
           expect.stringContaining('Do not treat the current findings as results from the configured code review platform'),
-          expect.stringContaining('findingbridge config show'),
-          expect.stringContaining('findingbridge server --db path/to/findingbridge.db'),
-          expect.stringContaining('findingbridge ingest --sarif path/to/results.sarif --db path/to/findingbridge.db'),
+          expect.stringContaining('oh-my-triage config show'),
+          expect.stringContaining('oh-my-triage server --db path/to/oh-my-triage.db'),
+          expect.stringContaining('oh-my-triage ingest --sarif path/to/results.sarif --db path/to/oh-my-triage.db'),
           expect.stringContaining('add a scanner adapter'),
         ]),
         agent_instruction: expect.stringContaining('configured code review platform'),
@@ -369,8 +369,8 @@ describe('MCP no-data responses', () => {
       repository_modified: false,
       database_modified: true,
       recommended_next_steps: [
-        'Call findingbridge_summary to inspect synchronized finding counts.',
-        'Then call findingbridge_list_findings for the synchronized finding details.',
+        'Call omt_summary to inspect synchronized finding counts.',
+        'Then call omt_list_findings for the synchronized finding details.',
       ],
     });
     expect(data.results).toEqual([
@@ -410,14 +410,14 @@ describe('MCP no-data responses', () => {
       recommended_next_steps: [
         'For SonarCloud, provide organizations[source_id] when the source configuration does not include an organization.',
         'Choose every discovered project key that matches the current workspace repository across configured scanner sources.',
-        'Call findingbridge_sync_sources without source_ids and pass project_keys: { [source_id]: selected_project_keys[source_id] } for each matching source that needs a key.',
+        'Call omt_sync_sources without source_ids and pass project_keys: { [source_id]: selected_project_keys[source_id] } for each matching source that needs a key.',
       ],
     });
     expect(data.results).toEqual([
       expect.objectContaining({
         source_id: 'sonarcloud',
         status: 'failed',
-        next_steps: [expect.stringContaining('findingbridge config set-token sonarcloud')],
+        next_steps: [expect.stringContaining('oh-my-triage config set-token sonarcloud')],
       }),
     ]);
   });

@@ -34,8 +34,8 @@ describe('Database Layer', () => {
     });
 
     it('migrates an existing v1 database before creating freshness indexes', () => {
-      const tempDir = mkdtempSync(join(tmpdir(), 'findingbridge-v1-'));
-      const dbPath = join(tempDir, 'findingbridge.db');
+      const tempDir = mkdtempSync(join(tmpdir(), 'oh-my-triage-v1-'));
+      const dbPath = join(tempDir, 'oh-my-triage.db');
       const legacyDb = new Database(dbPath);
       legacyDb.exec(`
         CREATE TABLE findings (
