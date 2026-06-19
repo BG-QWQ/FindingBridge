@@ -1,15 +1,17 @@
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { FindingBridgeError, ErrorCodes } from '../core/errors.js';
+import { OMTError, ErrorCodes } from '../core/errors.js';
 import { redactSecrets } from '../utils/redaction.js';
-import { DEFAULT_MCP_SERVER_NAME } from './defaults.js';
+import { DEFAULT_MCP_SERVER_NAME, LEGACY_MCP_SERVER_NAME } from './defaults.js';
 import type { DetectedMcpClient } from './mcp-client-detector.js';
 
+/** Describe the result of writing or updating an MCP client configuration file. */
 export type McpConfigWriteResult = {
   client: DetectedMcpClient;
   configPath: string;
   backupPath?: string;
   serverName: string;
+  warning?: string;
 };
 
 /** Mapping of format to the MCP key name used in each client's config file. */
@@ -67,7 +69,7 @@ function generateServerConfig(params: {
   }
 }
 
-/** Merge FindingBridge into an MCP client config while preserving ALL unrelated keys and settings. */
+/** Merge oh-my-triage into an MCP client config while preserving ALL unrelated keys and settings. */
 export async function writeMcpClientConfig(params: {
   client: DetectedMcpClient;
   command: string;
@@ -84,11 +86,7 @@ export async function writeMcpClientConfig(params: {
   const { existingConfig, existingMcpServers } = await readExistingConfig(configPath, mcpKey);
   const backupPath = params.client.exists ? `${configPath}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}` : undefined;
 
-  // Merge: preserve all existing MCP servers, only add/update our server
-  const mergedMcpServers = {
-    ...existingMcpServers,
-    [serverName]: serverConfig,
-  };
+  const { mergedMcpServers, warning } = mergeMcpServers({ existingMcpServers, serverName, serverConfig });
 
   // Build the final config: preserve ALL original keys, only update the MCP key
   const merged = {
@@ -103,7 +101,7 @@ export async function writeMcpClientConfig(params: {
     }
     await writeFile(configPath, `${JSON.stringify(merged, null, 2)}\n`, 'utf-8');
   } catch (error: unknown) {
-    throw new FindingBridgeError({
+    throw new OMTError({
       code: ErrorCodes.MCP_CONFIG_WRITE_FAILED,
       message: `Unable to update ${params.client.name} MCP configuration.`,
       nextSteps: ['Close the MCP client if it is locking the file, check permissions, then retry setup.'],
@@ -111,7 +109,44 @@ export async function writeMcpClientConfig(params: {
     });
   }
 
-  return { client: params.client, configPath, backupPath, serverName };
+  return { client: params.client, configPath, backupPath, serverName, warning };
+}
+
+function mergeMcpServers(params: {
+  existingMcpServers: Record<string, unknown>;
+  serverName: string;
+  serverConfig: Record<string, unknown>;
+}): { mergedMcpServers: Record<string, unknown>; warning?: string } {
+  const { existingMcpServers, serverName, serverConfig } = params;
+  const hasCanonicalServer = Object.hasOwn(existingMcpServers, serverName);
+  const shouldMigrateLegacyServer = serverName === DEFAULT_MCP_SERVER_NAME && Object.hasOwn(existingMcpServers, LEGACY_MCP_SERVER_NAME);
+
+  if (!shouldMigrateLegacyServer) {
+    return {
+      mergedMcpServers: {
+        ...existingMcpServers,
+        [serverName]: serverConfig,
+      },
+    };
+  }
+
+  if (hasCanonicalServer) {
+    return {
+      mergedMcpServers: {
+        ...existingMcpServers,
+        [serverName]: serverConfig,
+      },
+      warning: `Both ${DEFAULT_MCP_SERVER_NAME} and legacy ${LEGACY_MCP_SERVER_NAME} MCP server entries exist; updated ${DEFAULT_MCP_SERVER_NAME} and left ${LEGACY_MCP_SERVER_NAME} unchanged.`,
+    };
+  }
+
+  const serversWithoutLegacy = Object.fromEntries(Object.entries(existingMcpServers).filter(([name]) => name !== LEGACY_MCP_SERVER_NAME));
+  return {
+    mergedMcpServers: {
+      ...serversWithoutLegacy,
+      [serverName]: serverConfig,
+    },
+  };
 }
 
 /**

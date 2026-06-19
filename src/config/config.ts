@@ -1,56 +1,80 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { cosmiconfig } from 'cosmiconfig';
-import { FindingBridgeError, ErrorCodes } from '../core/errors.js';
+import { OMTError, ErrorCodes } from '../core/errors.js';
 import { redactSecrets } from '../utils/redaction.js';
-import { CONFIG_FILE_NAME, CONFIG_MODULE_NAME, createDefaultConfig, getDefaultConfigPath } from './defaults.js';
+import {
+  CONFIG_FILE_NAME,
+  CONFIG_MODULE_NAME,
+  createDefaultConfig,
+  getDefaultConfigPath,
+  getLegacyConfigPath,
+  LEGACY_CONFIG_MODULE_NAME,
+} from './defaults.js';
+import { migrateLegacyConfig } from './migration.js';
 import { ConfigSchema, type Config } from './validation.js';
 
-const explorer = cosmiconfig(CONFIG_MODULE_NAME, {
-  searchPlaces: [
-    'package.json',
-    `.${CONFIG_MODULE_NAME}rc`,
-    `.${CONFIG_MODULE_NAME}rc.json`,
-    `${CONFIG_MODULE_NAME}.config.json`,
-    CONFIG_FILE_NAME,
-  ],
-});
+const searchPlaces = [
+  'package.json',
+  `.${CONFIG_MODULE_NAME}rc`,
+  `.${CONFIG_MODULE_NAME}rc.json`,
+  `${CONFIG_MODULE_NAME}.config.json`,
+  CONFIG_FILE_NAME,
+];
+
+const legacySearchPlaces = [
+  `.${LEGACY_CONFIG_MODULE_NAME}rc`,
+  `.${LEGACY_CONFIG_MODULE_NAME}rc.json`,
+  `${LEGACY_CONFIG_MODULE_NAME}.config.json`,
+];
+
+const explorer = cosmiconfig(CONFIG_MODULE_NAME, { searchPlaces });
+const legacyExplorer = cosmiconfig(LEGACY_CONFIG_MODULE_NAME, { searchPlaces: legacySearchPlaces });
+
+type ConfigSearchResult = NonNullable<Awaited<ReturnType<typeof explorer.load>>>;
 
 export type LoadedConfig = {
   config: Config;
   filepath: string;
 };
 
-/** Load and validate FindingBridge configuration from an explicit path or cosmiconfig search. */
+/** Load and validate oh-my-triage configuration from an explicit path or cosmiconfig search. */
 export async function loadConfig(configPath?: string): Promise<LoadedConfig> {
-  let result;
+  let result: ConfigSearchResult | null | undefined;
   try {
-    result = configPath ? await explorer.load(resolve(configPath)) : await explorer.search();
+    result = configPath ? await explorer.load(resolve(configPath)) : await searchCanonicalConfig();
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('ENOENT')) {
-      throw new FindingBridgeError({
+      throw new OMTError({
         code: ErrorCodes.CONFIG_NOT_FOUND,
-        message: 'FindingBridge configuration was not found.',
-        nextSteps: ['Run `findingbridge init` or `findingbridge setup` to create a configuration file.'],
+        message: 'oh-my-triage configuration was not found.',
+        nextSteps: ['Run `oh-my-triage init` or `omt init` to create a configuration file.'],
       });
     }
     throw error;
   }
 
   if (!result) {
-    throw new FindingBridgeError({
+    const legacyResult = await tryLoadLegacyConfig(configPath);
+    if (legacyResult) {
+      result = legacyResult;
+    }
+  }
+
+  if (!result) {
+    throw new OMTError({
       code: ErrorCodes.CONFIG_NOT_FOUND,
-      message: 'FindingBridge configuration was not found.',
-      nextSteps: ['Run `findingbridge init` or `findingbridge setup` to create a configuration file.'],
+      message: 'oh-my-triage configuration was not found.',
+      nextSteps: ['Run `oh-my-triage init` or `omt init` to create a configuration file.'],
     });
   }
 
   const parsed = ConfigSchema.safeParse(result.config);
   if (!parsed.success) {
-    throw new FindingBridgeError({
+    throw new OMTError({
       code: ErrorCodes.CONFIG_INVALID,
-      message: 'FindingBridge configuration is invalid.',
-      nextSteps: ['Fix the reported fields or run `findingbridge setup --reset` to recreate configuration.'],
+      message: 'oh-my-triage configuration is invalid.',
+      nextSteps: ['Fix the reported fields or run `oh-my-triage setup --reset` to recreate configuration.'],
       details: { issues: parsed.error.issues },
     });
   }
@@ -58,7 +82,62 @@ export async function loadConfig(configPath?: string): Promise<LoadedConfig> {
   return { config: parsed.data, filepath: result.filepath };
 }
 
-/** Save validated FindingBridge configuration as JSON without overwriting unrelated files. */
+/**
+ * Attempt to load a legacy configuration and migrate it safely.
+ *
+ * Migration only copies files when canonical targets do not exist, and legacy
+ * files are left untouched.
+ */
+async function tryLoadLegacyConfig(configPath?: string): Promise<ConfigSearchResult | undefined> {
+  if (configPath) {
+    return undefined;
+  }
+
+  let legacyResult: ConfigSearchResult | null;
+  try {
+    legacyResult = await searchLegacyConfig();
+  } catch {
+    return undefined;
+  }
+
+  if (!legacyResult) {
+    return undefined;
+  }
+
+  const migration = await migrateLegacyConfig();
+  const migratedItems = migration.migrated.length > 0 ? ` Migrated: ${migration.migrated.join(', ')}.` : '';
+  console.warn(`Loaded legacy configuration for oh-my-triage. Old files were left untouched.${migratedItems}`);
+
+  explorer.clearCaches();
+  const migratedResult = await searchCanonicalConfig();
+  return migratedResult ?? legacyResult;
+}
+
+async function searchCanonicalConfig(): Promise<ConfigSearchResult | null> {
+  const discovered = await explorer.search();
+  return discovered ?? loadOptionalConfig(explorer, getDefaultConfigPath());
+}
+
+async function searchLegacyConfig(): Promise<ConfigSearchResult | null> {
+  const discovered = await legacyExplorer.search();
+  return discovered ?? loadOptionalConfig(legacyExplorer, getLegacyConfigPath());
+}
+
+async function loadOptionalConfig(
+  configExplorer: typeof explorer,
+  configPath: string
+): Promise<ConfigSearchResult | null> {
+  try {
+    return await configExplorer.load(configPath);
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message.includes('ENOENT')) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/** Save validated oh-my-triage configuration as JSON without overwriting unrelated files. */
 export async function saveConfig(config: Config, configPath = getDefaultConfigPath()): Promise<string> {
   const normalizedConfig = ConfigSchema.parse({ ...config, updated_at: new Date().toISOString() });
   const targetPath = resolve(configPath);
@@ -67,18 +146,19 @@ export async function saveConfig(config: Config, configPath = getDefaultConfigPa
     await mkdir(dirname(targetPath), { recursive: true });
     await writeFile(targetPath, `${JSON.stringify(normalizedConfig, null, 2)}\n`, { encoding: 'utf-8', flag: 'w' });
     explorer.clearCaches();
+    legacyExplorer.clearCaches();
     return targetPath;
   } catch (error: unknown) {
-    throw new FindingBridgeError({
+    throw new OMTError({
       code: ErrorCodes.CONFIG_WRITE_FAILED,
-      message: 'Unable to write FindingBridge configuration.',
+      message: 'Unable to write oh-my-triage configuration.',
       nextSteps: ['Check directory permissions and retry the command.'],
       details: { config_path: targetPath, error: redactSecrets(String(error)) },
     });
   }
 }
 
-/** Create an initial FindingBridge configuration file. */
+/** Create an initial oh-my-triage configuration file. */
 export async function initializeConfig(params?: {
   configPath?: string;
   force?: boolean;
@@ -91,7 +171,7 @@ export async function initializeConfig(params?: {
       const existing = await loadConfig(targetPath);
       return existing;
     } catch (error: unknown) {
-      if (!(error instanceof FindingBridgeError) || error.code !== ErrorCodes.CONFIG_NOT_FOUND) {
+      if (!(error instanceof OMTError) || error.code !== ErrorCodes.CONFIG_NOT_FOUND) {
         throw error;
       }
     }
@@ -107,7 +187,7 @@ export async function loadOrCreateConfig(configPath?: string): Promise<LoadedCon
   try {
     return await loadConfig(configPath);
   } catch (error: unknown) {
-    if (error instanceof FindingBridgeError && error.code === ErrorCodes.CONFIG_NOT_FOUND) {
+    if (error instanceof OMTError && error.code === ErrorCodes.CONFIG_NOT_FOUND) {
       return initializeConfig({ configPath });
     }
     throw error;

@@ -1,5 +1,5 @@
 import open from 'open';
-import { FindingBridgeError, ErrorCodes } from '../core/errors.js';
+import { OMTError, ErrorCodes } from '../core/errors.js';
 import { logger } from '../utils/logger.js';
 import { DEFAULT_SETUP_HOST, DEFAULT_SETUP_PORT } from './defaults.js';
 import { initializeConfig, loadOrCreateConfig, saveConfig, type LoadedConfig } from './config.js';
@@ -34,7 +34,7 @@ export async function runSetupService(params?: {
         await writeMcpClientConfig({
           client,
           command: params.command ?? process.execPath,
-          args: params.command ? ['server'] : [process.argv[1] ?? 'findingbridge', 'server'],
+          args: params.command ? ['server'] : [process.argv[1] ?? 'oh-my-triage', 'server'],
         })
       );
     }
@@ -59,10 +59,10 @@ export async function startWebSetup(params?: { host?: string; port?: number; con
     logger.info(`Opened browser to ${setupUrl}`);
   } catch (error: unknown) {
     await stopStaticServer(staticServer.server);
-    throw new FindingBridgeError({
+    throw new OMTError({
       code: ErrorCodes.SETUP_BROWSER_FAILED,
       message: 'Unable to open the setup wizard in a browser.',
-      nextSteps: [`Open ${setupUrl} manually or run findingbridge setup --cli.`],
+      nextSteps: [`Open ${setupUrl} manually or run oh-my-triage setup --cli (or omt setup --cli).`],
       details: { error: String(error) },
     });
   }

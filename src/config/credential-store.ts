@@ -1,10 +1,10 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { z } from 'zod';
-import { FindingBridgeError, ErrorCodes } from '../core/errors.js';
+import { OMTError, ErrorCodes } from '../core/errors.js';
 import { logger } from '../utils/logger.js';
 import { redactSecrets } from '../utils/redaction.js';
-import { CREDENTIAL_SERVICE_NAME, getDevCredentialPath } from './defaults.js';
+import { CREDENTIAL_SERVICE_NAME, LEGACY_CREDENTIAL_SERVICE_NAME, getDevCredentialPath } from './defaults.js';
 import type { TokenStorage } from './validation.js';
 
 const DevCredentialFileSchema = z.record(z.string(), z.string());
@@ -28,7 +28,7 @@ export class CredentialStore {
   /** Store a token and return the config-safe token reference. */
   async setToken(sourceId: string, token: string, preferredStorage: TokenStorage = 'keychain'): Promise<CredentialWriteResult> {
     if (preferredStorage === 'env') {
-      return { storage: 'env', tokenRef: this.envName(sourceId), warning: 'Set this environment variable before running FindingBridge.' };
+      return { storage: 'env', tokenRef: this.envName(sourceId), warning: 'Set this environment variable before running oh-my-triage.' };
     }
 
     if (preferredStorage === 'keychain') {
@@ -52,13 +52,41 @@ export class CredentialStore {
     const account = tokenRef ?? sourceId;
 
     if (storage === 'env') {
-      return process.env[account];
+      const canonicalAccount = tokenRef ?? this.envName(sourceId);
+      const canonicalValue = process.env[canonicalAccount];
+      if (canonicalValue) {
+        return canonicalValue;
+      }
+
+      const legacyAccount = this.legacyEnvName(sourceId);
+      const legacyValue = process.env[legacyAccount];
+      if (legacyValue) {
+        this.warnLegacyEnv(legacyAccount, canonicalAccount);
+        return legacyValue;
+      }
+
+      return undefined;
     }
 
     if (storage === 'keychain') {
       const keytar = await this.loadKeytar();
-      const value = keytar ? await keytar.getPassword(CREDENTIAL_SERVICE_NAME, account) : null;
-      return value ?? undefined;
+      if (!keytar) {
+        return undefined;
+      }
+
+      const value = await keytar.getPassword(CREDENTIAL_SERVICE_NAME, account);
+      if (value) {
+        return value;
+      }
+
+      const legacyValue = await keytar.getPassword(LEGACY_CREDENTIAL_SERVICE_NAME, account);
+      if (legacyValue) {
+        await keytar.setPassword(CREDENTIAL_SERVICE_NAME, account, legacyValue);
+        this.warnLegacyKeychain(account);
+        return legacyValue;
+      }
+
+      return undefined;
     }
 
     const credentials = await this.readDevCredentials();
@@ -85,7 +113,28 @@ export class CredentialStore {
 
   /** Return the conventional environment variable name for a source token. */
   envName(sourceId: string): string {
-    return `FINDINGBRIDGE_TOKEN_${sourceId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
+    return `OMT_TOKEN_${this.envSuffix(sourceId)}`;
+  }
+
+  /** Return the legacy environment variable name used before the oh-my-triage rename. */
+  legacyEnvName(sourceId: string): string {
+    return `FINDINGBRIDGE_TOKEN_${this.envSuffix(sourceId)}`;
+  }
+
+  private envSuffix(sourceId: string): string {
+    return sourceId.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  }
+
+  private warnLegacyEnv(legacyAccount: string, canonicalAccount: string): void {
+    process.stderr.write(
+      `Warning: ${legacyAccount} is deprecated. Set ${canonicalAccount} for oh-my-triage; the legacy FindingBridge environment variable will be removed in a future release.\n`,
+    );
+  }
+
+  private warnLegacyKeychain(account: string): void {
+    process.stderr.write(
+      `Warning: Migrated credential '${account}' from legacy ${LEGACY_CREDENTIAL_SERVICE_NAME} keychain service to ${CREDENTIAL_SERVICE_NAME}. The legacy keychain service will not be written again.\n`,
+    );
   }
 
   private async loadKeytar(): Promise<KeytarModule | undefined> {
@@ -121,7 +170,7 @@ export class CredentialStore {
       await mkdir(dirname(this.devCredentialPath), { recursive: true });
       await writeFile(this.devCredentialPath, `${JSON.stringify(credentials, null, 2)}\n`, { encoding: 'utf-8', flag: 'w', mode: 0o600 });
     } catch (error: unknown) {
-      throw new FindingBridgeError({
+      throw new OMTError({
         code: ErrorCodes.CONFIG_WRITE_FAILED,
         message: 'Unable to write development credential file.',
         nextSteps: ['Check config directory permissions or configure token_storage as env.'],
