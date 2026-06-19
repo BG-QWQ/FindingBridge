@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { loadOrCreateConfig } from '../../config/config.js';
+import { loadOrCreateConfig, resolveDatabasePath } from '../../config/config.js';
 import type { SourceConfig, TokenStorage } from '../../config/validation.js';
 import { logger } from '../../utils/logger.js';
 import { runDemoMode } from '../demo-mode.js';
@@ -25,7 +25,7 @@ export function createServerCommand(): Command {
       }
 
       const loadedConfig = await loadOrCreateConfig(options.config);
-      const dbPath = options.db ?? process.env.OMT_DB_PATH ?? process.env.FINDINGBRIDGE_DB_PATH ?? loadedConfig.config.database_path;
+      const dbPath = resolveDatabasePath(options.db, loadedConfig.config.database_path);
       if (!dbPath) {
         throw new Error('Database path is not configured. Run oh-my-triage init (or omt init) or pass --db.');
       }

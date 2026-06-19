@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { cosmiconfig } from 'cosmiconfig';
 import { OMTError, ErrorCodes } from '../core/errors.js';
+import { logger } from '../utils/logger.js';
 import { redactSecrets } from '../utils/redaction.js';
 import {
   CONFIG_FILE_NAME,
@@ -37,6 +38,30 @@ export type LoadedConfig = {
   config: Config;
   filepath: string;
 };
+
+/**
+ * Resolve the effective SQLite database path from CLI flags, environment variables,
+ * and configuration. Emits a deprecation warning when the legacy
+ * `FINDINGBRIDGE_DB_PATH` environment variable is still in use.
+ */
+export function resolveDatabasePath(optionsDb?: string, configDb?: string): string | undefined {
+  if (optionsDb) {
+    return optionsDb;
+  }
+
+  if (process.env.OMT_DB_PATH) {
+    return process.env.OMT_DB_PATH;
+  }
+
+  if (process.env.FINDINGBRIDGE_DB_PATH) {
+    process.stderr.write(
+      'Warning: FINDINGBRIDGE_DB_PATH is deprecated. Set OMT_DB_PATH for oh-my-triage; the legacy environment variable will be removed in a future release.\n',
+    );
+    return process.env.FINDINGBRIDGE_DB_PATH;
+  }
+
+  return configDb;
+}
 
 /** Load and validate oh-my-triage configuration from an explicit path or cosmiconfig search. */
 export async function loadConfig(configPath?: string): Promise<LoadedConfig> {
@@ -104,9 +129,16 @@ async function tryLoadLegacyConfig(configPath?: string): Promise<ConfigSearchRes
     return undefined;
   }
 
-  const migration = await migrateLegacyConfig();
-  const migratedItems = migration.migrated.length > 0 ? ` Migrated: ${migration.migrated.join(', ')}.` : '';
-  console.warn(`Loaded legacy configuration for oh-my-triage. Old files were left untouched.${migratedItems}`);
+  try {
+    const migration = await migrateLegacyConfig();
+    const migratedItems = migration.migrated.length > 0 ? ` Migrated: ${migration.migrated.join(', ')}.` : '';
+    console.warn(`Loaded legacy configuration for oh-my-triage. Old files were left untouched.${migratedItems}`);
+  } catch (error: unknown) {
+    logger.warn('Legacy configuration migration failed; continuing with legacy config in place.', {
+      error: redactSecrets(error instanceof Error ? error.message : String(error)),
+    });
+    return legacyResult;
+  }
 
   explorer.clearCaches();
   const migratedResult = await searchCanonicalConfig();

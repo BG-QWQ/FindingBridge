@@ -1,6 +1,7 @@
 import { constants } from 'node:fs';
-import { access, copyFile, mkdir } from 'node:fs/promises';
+import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import type { Config } from './validation.js';
 import {
   getDefaultConfigDir,
   getDefaultConfigPath,
@@ -79,6 +80,10 @@ export async function migrateLegacyConfig(): Promise<ConfigMigrationSummary> {
   await copyArtifactIfNeeded('database', getLegacyDatabasePath(), getDefaultDatabasePath(), migrated, skippedExisting);
   await copyArtifactIfNeeded('devCredential', getLegacyDevCredentialPath(), getDevCredentialPath(), migrated, skippedExisting);
 
+  if (migrated.includes('configFile')) {
+    await rewriteMigratedConfig(getDefaultConfigPath());
+  }
+
   return { detected, migrated, skippedExisting };
 }
 
@@ -101,6 +106,34 @@ async function copyArtifactIfNeeded(
   await mkdir(dirname(destinationPath), { recursive: true });
   await copyFile(sourcePath, destinationPath, constants.COPYFILE_EXCL);
   migrated.push(item);
+}
+
+/**
+ * Rewrite legacy references inside a freshly migrated configuration file.
+ *
+ * The legacy database path and legacy token environment variable prefixes are
+ * replaced with their canonical oh-my-triage equivalents so the migrated config
+ * does not silently point back to FindingBridge paths or env vars.
+ */
+async function rewriteMigratedConfig(configPath: string): Promise<void> {
+  const raw = await readFile(configPath, 'utf-8');
+  const parsed = JSON.parse(raw) as Config;
+
+  const legacyDatabasePath = getLegacyDatabasePath();
+  const canonicalDatabasePath = getDefaultDatabasePath();
+  if (parsed.database_path === legacyDatabasePath) {
+    parsed.database_path = canonicalDatabasePath;
+  }
+
+  const legacyTokenPrefix = 'FINDINGBRIDGE_TOKEN_';
+  const canonicalTokenPrefix = 'OMT_TOKEN_';
+  for (const source of parsed.sources ?? []) {
+    if (source.token_ref?.startsWith(legacyTokenPrefix)) {
+      source.token_ref = source.token_ref.replace(legacyTokenPrefix, canonicalTokenPrefix);
+    }
+  }
+
+  await writeFile(configPath, `${JSON.stringify(parsed, null, 2)}\n`, { encoding: 'utf-8', flag: 'w' });
 }
 
 async function pathExists(path: string): Promise<boolean> {

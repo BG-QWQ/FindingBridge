@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { loadOrCreateConfig } from '../../config/config.js';
+import { loadOrCreateConfig, resolveDatabasePath } from '../../config/config.js';
 import { OMTError, ErrorCodes } from '../../core/errors.js';
 import { closeConnection, createConnection } from '../../database/connection.js';
 import { SourceSyncService } from '../../sync/source-sync.js';
@@ -23,7 +23,7 @@ export function createSyncCommand(): Command {
     .option('--max-pages <number>', 'Maximum pages to fetch per source', String(20))
     .action(async (options: SyncOptions) => {
       const loadedConfig = await loadOrCreateConfig(options.config);
-      const dbPath = options.db ?? process.env.OMT_DB_PATH ?? process.env.FINDINGBRIDGE_DB_PATH ?? loadedConfig.config.database_path;
+      const dbPath = resolveDatabasePath(options.db, loadedConfig.config.database_path);
       if (!dbPath) {
         throw new OMTError({
           code: ErrorCodes.DB_CONNECTION_FAILED,

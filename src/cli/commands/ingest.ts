@@ -4,7 +4,7 @@ import { OMTError, ErrorCodes } from '../../core/errors.js';
 import type { Finding } from '../../core/models/finding.js';
 import { createConnection, closeConnection } from '../../database/connection.js';
 import { FindingRepository } from '../../database/repositories/finding-repo.js';
-import { loadOrCreateConfig } from '../../config/config.js';
+import { loadOrCreateConfig, resolveDatabasePath } from '../../config/config.js';
 
 type IngestOptions = {
   sarif?: string;
@@ -31,7 +31,7 @@ export function createIngestCommand(): Command {
       }
 
       const loadedConfig = await loadOrCreateConfig(options.config);
-      const dbPath = options.db ?? process.env.OMT_DB_PATH ?? process.env.FINDINGBRIDGE_DB_PATH ?? loadedConfig.config.database_path;
+      const dbPath = resolveDatabasePath(options.db, loadedConfig.config.database_path);
       if (!dbPath) {
         throw new OMTError({
           code: ErrorCodes.DB_CONNECTION_FAILED,
