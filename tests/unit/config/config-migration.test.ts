@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -30,6 +30,7 @@ describe('configuration migration', () => {
     writeFileSync(join(tempDir, '.keep'), '', 'utf-8');
     vi.stubEnv('APPDATA', appData);
     vi.stubEnv('XDG_CONFIG_HOME', appData);
+    vi.stubEnv('HOME', appData);
     originalCwd = process.cwd();
     process.chdir(tempDir);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -49,7 +50,7 @@ describe('configuration migration', () => {
     const loaded = await loadConfig();
     const detection = await detectLegacyConfig();
 
-    expect(loaded.filepath).toBe(join(tempDir, CONFIG_FILE_NAME));
+    expect(resolveRealPath(loaded.filepath)).toBe(resolveRealPath(join(tempDir, CONFIG_FILE_NAME)));
     expect(loaded.config.sources[0]?.id).toBe('canonical');
     expect(detection.hasLegacyConfig).toBe(false);
     expect(console.warn).not.toHaveBeenCalled();
@@ -63,7 +64,7 @@ describe('configuration migration', () => {
 
     const loaded = await loadConfig();
 
-    expect(loaded.filepath).toBe(getDefaultConfigPath());
+    expect(resolveRealPath(loaded.filepath)).toBe(resolveRealPath(getDefaultConfigPath()));
     expect(loaded.config.sources[0]?.id).toBe('legacy');
     expect(readJsonConfig(getDefaultConfigPath()).sources[0]?.id).toBe('legacy');
     expect(readFileSync(getDefaultDatabasePath(), 'utf-8')).toBe('legacy-db');
@@ -80,7 +81,7 @@ describe('configuration migration', () => {
 
     const loaded = await loadConfig();
 
-    expect(loaded.filepath).toBe(getDefaultConfigPath());
+    expect(resolveRealPath(loaded.filepath)).toBe(resolveRealPath(getDefaultConfigPath()));
     expect(loaded.config.sources[0]?.id).toBe('canonical');
     expect(readJsonConfig(getDefaultConfigPath()).sources[0]?.id).toBe('canonical');
     expect(readFileSync(getDefaultDatabasePath(), 'utf-8')).toBe('canonical-db');
@@ -116,7 +117,7 @@ describe('configuration migration', () => {
     const loaded = await loadConfig();
 
     expect(loaded.config.sources[0]?.id).toBe('project-legacy');
-    expect(loaded.filepath).toBe(join(tempDir, LEGACY_CONFIG_FILE_NAME));
+    expect(resolveRealPath(loaded.filepath)).toBe(resolveRealPath(join(tempDir, LEGACY_CONFIG_FILE_NAME)));
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Loaded legacy configuration for oh-my-triage'));
   });
 
@@ -134,7 +135,7 @@ describe('configuration migration', () => {
     await migrateLegacyConfig();
 
     const migrated = readJsonConfig(getDefaultConfigPath());
-    expect(migrated.database_path).toBe(getDefaultDatabasePath());
+    expect(resolveRealPath(migrated.database_path ?? '')).toBe(resolveRealPath(getDefaultDatabasePath()));
     expect(migrated.sources[0]?.token_ref).toBe('OMT_TOKEN_GITHUB');
     expect(migrated.sources[1]?.token_ref).toBe('OMT_TOKEN_SONAR');
   });
@@ -160,4 +161,19 @@ function writeTextFile(path: string, content: string): void {
 
 function readJsonConfig(path: string): Config {
   return JSON.parse(readFileSync(path, 'utf-8')) as Config;
+}
+
+/**
+ * Normalize a path for cross-platform test assertions.
+ *
+ * macOS exposes temp directories through a `/private` symlink (e.g.
+ * `/var/folders/...` resolves to `/private/var/folders/...`). `realpathSync`
+ * collapses the symlink so two equivalent paths compare equal.
+ */
+function resolveRealPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
