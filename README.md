@@ -24,7 +24,7 @@ As a developer, you've probably been overwhelmed by security scanner alerts. Son
 ### Method 1: Download & Run (Recommended for beginners)
 
 1. Download the release for your platform from [Releases](https://github.com/BG-QWQ/oh-my-triage/releases)
-2. Extract and run `oh-my-triage` (or `oh-my-triage.exe` on Windows)
+2. Extract and run `oh-my-triage` (or `oh-my-triage.cmd` on Windows)
 3. Follow the web setup wizard at `http://localhost:3456/setup`
 4. Ask Claude: *"What are my most critical security findings?"*
 

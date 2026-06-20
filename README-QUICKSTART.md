@@ -6,7 +6,7 @@
 
 Download the latest release for your platform:
 
-- **Windows**: `oh-my-triage-v0.1.0-win-x64.exe`
+- **Windows**: `oh-my-triage-v0.1.0-windows-x64.zip` (extract and run `oh-my-triage.cmd`)
 - **macOS**: `oh-my-triage-v0.1.0-macos-arm64` (Apple Silicon) or `-x64` (Intel)
 - **Linux**: `oh-my-triage-v0.1.0-linux-x64`
 
