@@ -19,18 +19,28 @@ const NO_FILTER_SENTINELS = new Set([
   '>>>omit<<<',
 ]);
 
-const OptionalFindingFilterSchema = z.preprocess((value) => {
-  if (typeof value !== 'string') {
-    return value;
-  }
+/**
+ * Create a fresh optional string filter schema.
+ *
+ * Returns a new Zod schema instance on every call so that `zod-to-json-schema`
+ * cannot reuse the same schema across multiple object properties via `$ref`.
+ * Moonshot AI's JSON Schema validator rejects property-path references such as
+ * `#/properties/rule_id`, which breaks tool discovery for that provider.
+ */
+function createOptionalFindingFilterSchema() {
+  return z.preprocess((value) => {
+    if (typeof value !== 'string') {
+      return value;
+    }
 
-  const trimmed = value.trim();
-  if (!trimmed || NO_FILTER_SENTINELS.has(trimmed.toLowerCase())) {
-    return undefined;
-  }
+    const trimmed = value.trim();
+    if (!trimmed || NO_FILTER_SENTINELS.has(trimmed.toLowerCase())) {
+      return undefined;
+    }
 
-  return trimmed;
-}, z.string().min(1).optional());
+    return trimmed;
+  }, z.string().min(1).optional());
+}
 
 /**
  * Validate finding list filters and pagination controls.
@@ -43,10 +53,10 @@ export const ListFindingsInputSchema = z.object({
   severity: z.array(UnifiedSeverity).optional(),
   tool: z.array(z.string().min(1)).optional(),
   status: z.array(FindingStatus).optional(),
-  rule_id: OptionalFindingFilterSchema
+  rule_id: createOptionalFindingFilterSchema()
     .describe('Exact scanner rule ID to match, such as js/sql-injection or python:S3776. This is not a prefix search or project key.')
     .optional(),
-  file_path: OptionalFindingFilterSchema
+  file_path: createOptionalFindingFilterSchema()
     .describe('Normalized finding location path to match against stored findings, such as src/db.ts or ensemble.py. This is not a scanner project or repository selector.')
     .optional(),
   limit: z.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
