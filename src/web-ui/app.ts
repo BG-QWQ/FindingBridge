@@ -567,7 +567,8 @@ async function handleSocketConnectionTest(testBtn: HTMLButtonElement, statusCont
 
     if (result.valid) {
       state.connectionResults.set('socket', result);
-      showStatus(statusContainer, 'success', `Connected! Found ${result.projects_found ?? 0} projects.`);
+      const orgCount = result.orgs_found ?? 0;
+      showStatus(statusContainer, 'success', `Connected! Found ${orgCount} organization${orgCount === 1 ? '' : 's'}.`);
     } else {
       showStatus(statusContainer, 'error', result.reason ?? 'Connection failed. Check your token.');
       if (result.suggestion) {
@@ -627,7 +628,8 @@ async function handleSnykConnectionTest(testBtn: HTMLButtonElement, statusContai
 
     if (result.valid) {
       state.connectionResults.set('snyk', result);
-      showStatus(statusContainer, 'success', `Connected! Found ${result.projects_found ?? 0} projects.`);
+      const orgCount = result.orgs_found ?? 0;
+      showStatus(statusContainer, 'success', `Connected! Found ${orgCount} organization${orgCount === 1 ? '' : 's'}.`);
     } else {
       showStatus(statusContainer, 'error', result.reason ?? 'Connection failed. Check your token.');
       if (result.suggestion) {
@@ -687,7 +689,8 @@ async function handleSemgrepConnectionTest(testBtn: HTMLButtonElement, statusCon
 
     if (result.valid) {
       state.connectionResults.set('semgrep', result);
-      showStatus(statusContainer, 'success', `Connected! Found ${result.projects_found ?? 0} projects.`);
+      const deploymentCount = result.projects_found ?? 0;
+      showStatus(statusContainer, 'success', `Connected! Found ${deploymentCount} deployment${deploymentCount === 1 ? '' : 's'}.`);
     } else {
       showStatus(statusContainer, 'error', result.reason ?? 'Connection failed. Check your token.');
       if (result.suggestion) {
