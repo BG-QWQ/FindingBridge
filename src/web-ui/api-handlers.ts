@@ -4,6 +4,9 @@ import { logger } from '../utils/logger.js';
 import { SonarCloudAdapter } from '../adapters/sonarcloud/sonarcloud-adapter.js';
 import { GitHubAdapter } from '../adapters/github/github-adapter.js';
 import { SarifAdapter } from '../adapters/sarif/sarif-adapter.js';
+import { SocketAdapter } from '../adapters/socket/socket-adapter.js';
+import { SnykAdapter } from '../adapters/snyk/snyk-adapter.js';
+import { SemgrepAdapter } from '../adapters/semgrep/semgrep-adapter.js';
 import { detectMcpClients } from '../config/mcp-client-detector.js';
 import { writeMcpClientConfig } from '../config/mcp-config-writer.js';
 import { loadOrCreateConfig, saveConfig } from '../config/config.js';
@@ -20,7 +23,7 @@ const GitHubRepositorySelectionSchema = z.object({
 
 const SetupSourceSchema = z.object({
   id: z.string().min(1),
-  type: z.enum(['sarif', 'github', 'sonarcloud']),
+  type: z.enum(['sarif', 'github', 'sonarcloud', 'socket', 'snyk', 'semgrep']),
   name: z.string().min(1).optional(),
   enabled: z.boolean().default(true),
   path: z.string().optional(),
@@ -176,6 +179,24 @@ function sanitizeSourceOptions(source: SetupSourceInput): Record<string, unknown
         organization: readStringOption(source.options, 'organization'),
       };
     }
+    case 'socket': {
+      return {
+        organization: readStringOption(source.options, 'organization'),
+        org_slug: readStringOption(source.options, 'org_slug'),
+      };
+    }
+    case 'snyk': {
+      return {
+        organization: readStringOption(source.options, 'organization'),
+        org_id: readStringOption(source.options, 'org_id'),
+      };
+    }
+    case 'semgrep': {
+      return {
+        deployment: readStringOption(source.options, 'deployment'),
+        deployment_slug: readStringOption(source.options, 'deployment_slug'),
+      };
+    }
     case 'sarif':
     default: {
       return {};
@@ -191,7 +212,14 @@ async function handleGetStatus(_req: IncomingMessage, res: ServerResponse): Prom
     
     const configuredScanners: ScannerType[] = [];
     for (const source of config.config.sources) {
-      if (source.type === 'sarif' || source.type === 'github' || source.type === 'sonarcloud') {
+      if (
+        source.type === 'sarif' ||
+        source.type === 'github' ||
+        source.type === 'sonarcloud' ||
+        source.type === 'socket' ||
+        source.type === 'snyk' ||
+        source.type === 'semgrep'
+      ) {
         configuredScanners.push(source.type as ScannerType);
       }
     }
@@ -248,6 +276,37 @@ async function handleTestConnection(req: IncomingMessage, res: ServerResponse): 
         const adapter = new SarifAdapter({
           filePath: firstConfigString(config, 'file_path', 'path'),
         });
+        result = await adapter.testConnection();
+        break;
+      }
+      case 'socket': {
+        const token = configString(config, 'token');
+        const orgSlug = configString(config, 'organization') || undefined;
+        if (!token) {
+          sendError(res, 400, 'Socket.dev token is required');
+          return;
+        }
+        const adapter = new SocketAdapter({ token, orgSlug });
+        result = await adapter.testConnection();
+        break;
+      }
+      case 'snyk': {
+        const token = configString(config, 'token');
+        if (!token) {
+          sendError(res, 400, 'Snyk token is required');
+          return;
+        }
+        const adapter = new SnykAdapter({ token });
+        result = await adapter.testConnection();
+        break;
+      }
+      case 'semgrep': {
+        const token = configString(config, 'token');
+        if (!token) {
+          sendError(res, 400, 'Semgrep token is required');
+          return;
+        }
+        const adapter = new SemgrepAdapter({ token });
         result = await adapter.testConnection();
         break;
       }
@@ -362,7 +421,7 @@ async function handleSaveSetup(req: IncomingMessage, res: ServerResponse): Promi
       sources.push(...prepared.sources);
     }
 
-    const managedTypes = new Set<ScannerType>(['sarif', 'github', 'sonarcloud']);
+    const managedTypes = new Set<ScannerType>(['sarif', 'github', 'sonarcloud', 'socket', 'snyk', 'semgrep']);
     const unmanagedSources = loadedConfig.config.sources.filter((source) => !managedTypes.has(source.type as ScannerType));
     const nextConfig = {
       ...loadedConfig.config,

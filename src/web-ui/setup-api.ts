@@ -39,7 +39,7 @@ export class ApiError extends Error {
 // ── Type definitions (no runtime validation needed in browser) ──────────────────────────────────────────────
 
 /** Scanner source types available for setup */
-export type ScannerType = 'sarif' | 'github' | 'sonarcloud';
+export type ScannerType = 'sarif' | 'github' | 'sonarcloud' | 'socket' | 'snyk' | 'semgrep';
 
 /** Setup status response */
 export interface SetupStatus {

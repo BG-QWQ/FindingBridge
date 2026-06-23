@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from '@/config/validation.js';
 import { handleApiRequest } from '@/web-ui/api-handlers.js';
 
@@ -44,6 +44,10 @@ describe('handleApiRequest', () => {
     configState.savedConfig = undefined;
     configState.loadedConfig = undefined;
     credentialState.setTokenCalls = [];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('dispatches setup health requests through the route table', async () => {
@@ -170,6 +174,63 @@ describe('handleApiRequest', () => {
     expect(configState.savedConfig?.sources).toEqual(expect.arrayContaining(configState.loadedConfig.sources));
   });
 
+  it('tests Socket.dev connection through the setup API', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      jsonResponse({ organizations: [{ slug: 'acme', name: 'Acme' }], endCursor: null })
+    );
+    const response = new StubResponse();
+    const request = createJsonRequest('/api/setup/test-connection', 'POST', {
+      scanner_type: 'socket',
+      config: { token: 'token-123' },
+    });
+
+    const handled = await handleApiRequest(request, response as unknown as ServerResponse);
+
+    expect(handled).toBe(true);
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.valid).toBe(true);
+    expect(body.orgs_found).toBe(1);
+  });
+
+  it('tests Snyk connection through the setup API', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      jsonResponse({ data: [{ id: 'org-1', attributes: { name: 'Acme' } }], links: {} })
+    );
+    const response = new StubResponse();
+    const request = createJsonRequest('/api/setup/test-connection', 'POST', {
+      scanner_type: 'snyk',
+      config: { token: 'token-123' },
+    });
+
+    const handled = await handleApiRequest(request, response as unknown as ServerResponse);
+
+    expect(handled).toBe(true);
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.valid).toBe(true);
+    expect(body.orgs_found).toBe(1);
+  });
+
+  it('tests Semgrep connection through the setup API', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      jsonResponse({ deployments: [{ slug: 'acme', name: 'Acme' }] })
+    );
+    const response = new StubResponse();
+    const request = createJsonRequest('/api/setup/test-connection', 'POST', {
+      scanner_type: 'semgrep',
+      config: { token: 'token-123' },
+    });
+
+    const handled = await handleApiRequest(request, response as unknown as ServerResponse);
+
+    expect(handled).toBe(true);
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.valid).toBe(true);
+    expect(body.projects_found).toBe(1);
+  });
+
   it('returns the current server command for MCP client previews', async () => {
     const response = new StubResponse();
 
@@ -230,4 +291,8 @@ function baseConfig(sources: Config['sources'] = []): Config {
     token_storage: 'keychain',
     sources,
   };
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200 });
 }
