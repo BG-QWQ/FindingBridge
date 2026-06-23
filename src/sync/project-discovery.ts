@@ -1,3 +1,6 @@
+import { SocketClient } from '../adapters/socket/socket-client.js';
+import { SnykClient } from '../adapters/snyk/snyk-client.js';
+import { SemgrepClient } from '../adapters/semgrep/semgrep-client.js';
 import { SonarCloudClient } from '../adapters/sonarcloud/sonarcloud-client.js';
 import type { SonarCloudProject } from '../adapters/sonarcloud/sonarcloud-schemas.js';
 import { CredentialStore } from '../config/credential-store.js';
@@ -7,7 +10,12 @@ import { redactSecrets } from '../utils/redaction.js';
 
 const DEFAULT_MAX_PAGES = 10;
 
+const DISCOVERABLE_SOURCE_TYPES: SourceConfig['type'][] = ['sonarcloud', 'socket', 'snyk', 'semgrep'];
+
 type SonarCloudProjectListClient = Pick<SonarCloudClient, 'listProjects'>;
+type SocketOrganizationListClient = Pick<SocketClient, 'listOrganizations'>;
+type SnykOrganizationListClient = Pick<SnykClient, 'listOrganizations'>;
+type SemgrepDeploymentListClient = Pick<SemgrepClient, 'listDeployments'>;
 
 /** Redacted scanner project visible to a configured source credential. */
 export type DiscoveredProject = {
@@ -52,12 +60,18 @@ export type ProjectDiscoveryServiceOptions = {
   config: Config;
   credentialStore?: CredentialStore;
   createSonarCloudClient?: (source: SourceConfig, token: string) => SonarCloudProjectListClient;
+  createSocketClient?: (source: SourceConfig, token: string) => SocketOrganizationListClient;
+  createSnykClient?: (source: SourceConfig, token: string) => SnykOrganizationListClient;
+  createSemgrepClient?: (source: SourceConfig, token: string) => SemgrepDeploymentListClient;
 };
 
 /** Discover projects visible to configured scanner source credentials without modifying local state. */
 export class ProjectDiscoveryService {
   private readonly credentialStore: CredentialStore;
   private readonly createSonarCloudClient: (source: SourceConfig, token: string) => SonarCloudProjectListClient;
+  private readonly createSocketClient: (source: SourceConfig, token: string) => SocketOrganizationListClient;
+  private readonly createSnykClient: (source: SourceConfig, token: string) => SnykOrganizationListClient;
+  private readonly createSemgrepClient: (source: SourceConfig, token: string) => SemgrepDeploymentListClient;
 
   constructor(private readonly options: ProjectDiscoveryServiceOptions) {
     this.credentialStore = options.credentialStore ?? new CredentialStore();
@@ -67,6 +81,27 @@ export class ProjectDiscoveryService {
         new SonarCloudClient({
           token,
           organization: readStringOption(source, 'organization'),
+          apiBaseUrl: source.api_url,
+        }));
+    this.createSocketClient =
+      options.createSocketClient ??
+      ((source, token) =>
+        new SocketClient({
+          token,
+          apiBaseUrl: source.api_url,
+        }));
+    this.createSnykClient =
+      options.createSnykClient ??
+      ((source, token) =>
+        new SnykClient({
+          token,
+          apiBaseUrl: source.api_url,
+        }));
+    this.createSemgrepClient =
+      options.createSemgrepClient ??
+      ((source, token) =>
+        new SemgrepClient({
+          token,
           apiBaseUrl: source.api_url,
         }));
   }
@@ -92,7 +127,7 @@ export class ProjectDiscoveryService {
   private selectSources(sourceIds?: string[]): SourceConfig[] {
     const enabled = this.options.config.sources.filter((source) => source.enabled);
     if (!sourceIds?.length) {
-      return enabled.filter((source) => source.type === 'sonarcloud');
+      return enabled.filter((source) => DISCOVERABLE_SOURCE_TYPES.includes(source.type));
     }
 
     const requested = new Set(sourceIds);
@@ -103,7 +138,7 @@ export class ProjectDiscoveryService {
     source: SourceConfig,
     options: DiscoverProjectsOptions
   ): Promise<SourceProjectDiscoveryResult> {
-    if (source.type !== 'sonarcloud') {
+    if (!DISCOVERABLE_SOURCE_TYPES.includes(source.type)) {
       return {
         source_id: source.id,
         source_type: source.type,
@@ -111,19 +146,43 @@ export class ProjectDiscoveryService {
         projects: [],
         total: 0,
         pages_fetched: 0,
-        next_steps: ['Project discovery currently supports SonarCloud sources only.'],
+        next_steps: [`Project discovery does not support ${source.type} sources.`],
       };
     }
 
     try {
       const token = await this.tokenForSource(source);
       const sourceWithOverrides = applyDiscoveryOverrides(source, options);
-      const organization = readStringOption(sourceWithOverrides, 'organization');
-      if (!organization) {
-        throw missingOrganizationError(source.id);
+
+      switch (source.type) {
+        case 'sonarcloud': {
+          const organization = readStringOption(sourceWithOverrides, 'organization');
+          if (!organization) {
+            throw missingOrganizationError(source.id);
+          }
+          const client = this.createSonarCloudClient(sourceWithOverrides, token);
+          return await this.discoverSonarCloudProjects(sourceWithOverrides, client, options.maxPages ?? DEFAULT_MAX_PAGES);
+        }
+        case 'socket': {
+          const client = this.createSocketClient(sourceWithOverrides, token);
+          return await this.discoverSocketOrganizations(sourceWithOverrides, client, options.maxPages ?? DEFAULT_MAX_PAGES);
+        }
+        case 'snyk': {
+          const client = this.createSnykClient(sourceWithOverrides, token);
+          return await this.discoverSnykOrganizations(sourceWithOverrides, client, options.maxPages ?? DEFAULT_MAX_PAGES);
+        }
+        case 'semgrep': {
+          const client = this.createSemgrepClient(sourceWithOverrides, token);
+          return await this.discoverSemgrepDeployments(sourceWithOverrides, client, options.maxPages ?? DEFAULT_MAX_PAGES);
+        }
       }
-      const client = this.createSonarCloudClient(sourceWithOverrides, token);
-      return await this.discoverSonarCloudProjects(sourceWithOverrides, client, options.maxPages ?? DEFAULT_MAX_PAGES);
+
+      throw new OMTError({
+        code: ErrorCodes.ADAPTER_FETCH_FAILED,
+        message: `Project discovery encountered an unexpected source type: ${source.type}.`,
+        nextSteps: ['Report this issue with the source configuration that triggered it.'],
+        retryable: false,
+      });
     } catch (error: unknown) {
       return {
         source_id: source.id,
@@ -178,7 +237,99 @@ export class ProjectDiscoveryService {
       projects,
       total,
       pages_fetched: pagesFetched,
-      next_steps: nextStepsForProjectCount(projects.length, hasMore),
+      next_steps: nextStepsForProjectCount(projects.length, hasMore, 'SonarCloud'),
+    };
+  }
+
+  private async discoverSocketOrganizations(
+    source: SourceConfig,
+    client: SocketOrganizationListClient,
+    maxPages: number
+  ): Promise<SourceProjectDiscoveryResult> {
+    const projects: DiscoveredProject[] = [];
+    let pagesFetched = 0;
+    let cursor: string | undefined;
+    let hasMore = false;
+
+    do {
+      const result = await client.listOrganizations({ cursor });
+      projects.push(
+        ...result.organizations.map((organization) => ({
+          key: redactSecrets(organization.slug),
+          name: redactSecrets(organization.name ?? organization.slug),
+          organization: redactSecrets(organization.slug),
+        }))
+      );
+      cursor = result.endCursor;
+      hasMore = result.hasMore;
+      pagesFetched += 1;
+    } while (hasMore && pagesFetched < maxPages);
+
+    return {
+      source_id: source.id,
+      source_type: source.type,
+      status: 'success',
+      projects,
+      total: projects.length,
+      pages_fetched: pagesFetched,
+      next_steps: nextStepsForProjectCount(projects.length, hasMore, 'Socket.dev'),
+    };
+  }
+
+  private async discoverSnykOrganizations(
+    source: SourceConfig,
+    client: SnykOrganizationListClient,
+    maxPages: number
+  ): Promise<SourceProjectDiscoveryResult> {
+    const projects: DiscoveredProject[] = [];
+    let pagesFetched = 0;
+    let cursor: string | undefined;
+    let hasMore = false;
+
+    do {
+      const result = await client.listOrganizations({ cursor });
+      projects.push(
+        ...result.organizations.map((organization) => ({
+          key: redactSecrets(organization.id),
+          name: redactSecrets(organization.name ?? organization.id),
+          organization: redactSecrets(organization.slug ?? organization.id),
+        }))
+      );
+      cursor = result.nextCursor;
+      hasMore = cursor !== undefined;
+      pagesFetched += 1;
+    } while (hasMore && pagesFetched < maxPages);
+
+    return {
+      source_id: source.id,
+      source_type: source.type,
+      status: 'success',
+      projects,
+      total: projects.length,
+      pages_fetched: pagesFetched,
+      next_steps: nextStepsForProjectCount(projects.length, hasMore, 'Snyk'),
+    };
+  }
+
+  private async discoverSemgrepDeployments(
+    source: SourceConfig,
+    client: SemgrepDeploymentListClient,
+    _maxPages: number
+  ): Promise<SourceProjectDiscoveryResult> {
+    const result = await client.listDeployments();
+    const projects = result.deployments.map((deployment) => ({
+      key: redactSecrets(deployment.slug),
+      name: redactSecrets(deployment.name ?? deployment.slug),
+    }));
+
+    return {
+      source_id: source.id,
+      source_type: source.type,
+      status: 'success',
+      projects,
+      total: projects.length,
+      pages_fetched: 1,
+      next_steps: nextStepsForProjectCount(projects.length, result.hasMore, 'Semgrep'),
     };
   }
 
@@ -205,9 +356,9 @@ function mapSonarCloudProject(project: SonarCloudProject): DiscoveredProject {
   };
 }
 
-function nextStepsForProjectCount(count: number, hasMore: boolean): string[] {
+function nextStepsForProjectCount(count: number, hasMore: boolean, scannerName: string): string[] {
   if (count === 0) {
-    return ['No SonarCloud projects were visible to this token. Check token permissions and organization settings.'];
+    return [`No ${scannerName} projects were visible to this token. Check token permissions and organization settings.`];
   }
 
   const steps = [

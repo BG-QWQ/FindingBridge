@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { CredentialStore } from '@/config/credential-store.js';
 import type { Config, SourceConfig, TokenStorage } from '@/config/validation.js';
 import { ProjectDiscoveryService } from '@/sync/project-discovery.js';
+import type { SocketClient } from '@/adapters/socket/socket-client.js';
+import type { SnykClient } from '@/adapters/snyk/snyk-client.js';
+import type { SemgrepClient } from '@/adapters/semgrep/semgrep-client.js';
 
 describe('ProjectDiscoveryService', () => {
   it('lists SonarCloud projects visible to the configured token', async () => {
@@ -133,6 +136,96 @@ describe('ProjectDiscoveryService', () => {
       next_steps: [expect.stringContaining('oh-my-triage config set-token sonarcloud')],
     });
   });
+
+  it('lists Socket.dev organizations visible to the configured token', async () => {
+    const service = new ProjectDiscoveryService({
+      config: createConfig([
+        {
+          id: 'socket',
+          type: 'socket',
+          enabled: true,
+          options: {},
+          token_ref: 'socket',
+        },
+      ]),
+      credentialStore: new StaticCredentialStore('token-123') as unknown as CredentialStore,
+      createSocketClient: (_source, token) => new StaticSocketClient(token),
+    });
+
+    const result = await service.discoverProjects();
+
+    expect(result).toMatchObject({
+      sources_total: 1,
+      sources_succeeded: 1,
+      sources_failed: 0,
+      sources_skipped: 0,
+    });
+    expect(result.results[0]).toMatchObject({
+      source_id: 'socket',
+      status: 'success',
+      projects: [{ key: 'acme', name: 'Acme' }],
+    });
+  });
+
+  it('lists Snyk organizations visible to the configured token', async () => {
+    const service = new ProjectDiscoveryService({
+      config: createConfig([
+        {
+          id: 'snyk',
+          type: 'snyk',
+          enabled: true,
+          options: {},
+          token_ref: 'snyk',
+        },
+      ]),
+      credentialStore: new StaticCredentialStore('token-123') as unknown as CredentialStore,
+      createSnykClient: (_source, token) => new StaticSnykClient(token),
+    });
+
+    const result = await service.discoverProjects();
+
+    expect(result).toMatchObject({
+      sources_total: 1,
+      sources_succeeded: 1,
+      sources_failed: 0,
+      sources_skipped: 0,
+    });
+    expect(result.results[0]).toMatchObject({
+      source_id: 'snyk',
+      status: 'success',
+      projects: [{ key: 'org-1', name: 'Acme' }],
+    });
+  });
+
+  it('lists Semgrep deployments visible to the configured token', async () => {
+    const service = new ProjectDiscoveryService({
+      config: createConfig([
+        {
+          id: 'semgrep',
+          type: 'semgrep',
+          enabled: true,
+          options: {},
+          token_ref: 'semgrep',
+        },
+      ]),
+      credentialStore: new StaticCredentialStore('token-123') as unknown as CredentialStore,
+      createSemgrepClient: (_source, token) => new StaticSemgrepClient(token),
+    });
+
+    const result = await service.discoverProjects();
+
+    expect(result).toMatchObject({
+      sources_total: 1,
+      sources_succeeded: 1,
+      sources_failed: 0,
+      sources_skipped: 0,
+    });
+    expect(result.results[0]).toMatchObject({
+      source_id: 'semgrep',
+      status: 'success',
+      projects: [{ key: 'acme', name: 'Acme' }],
+    });
+  });
 });
 
 function createConfig(sources: SourceConfig[]): Config {
@@ -187,5 +280,44 @@ class StaticSonarCloudClient {
       total: 1,
       hasMore: false,
     };
+  }
+}
+
+type SocketListClient = Pick<SocketClient, 'listOrganizations'>;
+
+class StaticSocketClient implements SocketListClient {
+  constructor(private readonly token: string) {}
+
+  async listOrganizations(): Promise<{ organizations: Array<{ slug: string; name?: string }>; hasMore: boolean }> {
+    if (this.token !== 'token-123') {
+      throw new Error('Unexpected token.');
+    }
+    return { organizations: [{ slug: 'acme', name: 'Acme' }], hasMore: false };
+  }
+}
+
+type SnykListClient = Pick<SnykClient, 'listOrganizations'>;
+
+class StaticSnykClient implements SnykListClient {
+  constructor(private readonly token: string) {}
+
+  async listOrganizations(): Promise<{ organizations: Array<{ id: string; name?: string }>; nextCursor?: string }> {
+    if (this.token !== 'token-123') {
+      throw new Error('Unexpected token.');
+    }
+    return { organizations: [{ id: 'org-1', name: 'Acme' }] };
+  }
+}
+
+type SemgrepListClient = Pick<SemgrepClient, 'listDeployments'>;
+
+class StaticSemgrepClient implements SemgrepListClient {
+  constructor(private readonly token: string) {}
+
+  async listDeployments(): Promise<{ deployments: Array<{ slug: string; name?: string }>; hasMore: boolean }> {
+    if (this.token !== 'token-123') {
+      throw new Error('Unexpected token.');
+    }
+    return { deployments: [{ slug: 'acme', name: 'Acme' }], hasMore: false };
   }
 }
