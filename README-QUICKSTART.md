@@ -36,7 +36,10 @@ Double-click the executable (or run in terminal). The setup wizard will automati
 3. Click "Test Connection"
 4. Select repositories to monitor
 
-**Required token scopes**: `repo` (or `public_repo`), `security_events`
+**Required permissions**:
+
+- **Classic PAT**: `repo` (or `public_repo` for public repos only) + `security_events`
+- **Fine-grained PAT**: `Metadata` (read) + `Code scanning alerts` (read)
 
 ### Option C: SonarCloud
 

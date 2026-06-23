@@ -5,10 +5,16 @@
 ### 1. Create GitHub Personal Access Token
 
 1. Go to https://github.com/settings/tokens
-2. Click "Generate new token (classic)"
-3. Select scopes:
-   - `repo` (or `public_repo` for public repos only)
-   - `security_events`
+2. Choose the token type:
+   - **Classic PAT**: click "Generate new token (classic)"
+   - **Fine-grained PAT**: click "Generate new token"
+3. Select the permissions for your token type:
+
+   | Token type | Required permissions |
+   |------------|---------------------|
+   | Classic PAT | `repo` (or `public_repo` for public repos only) + `security_events` |
+   | Fine-grained PAT | `Metadata` (read) + `Code scanning alerts` (read) |
+
 4. Generate and copy token
 
 ### 2. Configure oh-my-triage
@@ -46,15 +52,16 @@ oh-my-triage config set-token github
 
 ## Token Permissions
 
-oh-my-triage validates your token has required permissions:
+oh-my-triage validates your token has required permissions. The exact permission
+names depend on whether you use a classic or fine-grained personal access token:
 
-| Check | Required Scope |
-|-------|--------------|
-| Read repos | `repo` or `public_repo` |
-| Read alerts | `security_events` |
+| Check | Classic PAT scope | Fine-grained PAT permission |
+|-------|-------------------|----------------------------|
+| Read repos | `repo` or `public_repo` | `Metadata` (read) |
+| Read alerts | `security_events` | `Code scanning alerts` (read) |
 
 If permissions are missing, the setup wizard shows:
-- Exact missing scopes
+- Exact missing scopes or permissions
 - Link to token settings
 - Option to retry or skip
 
@@ -76,16 +83,20 @@ If permissions are missing, the setup wizard shows:
 
 ## Scope Validation
 
-The adapter checks `X-OAuth-Scopes` header when available to verify:
+For classic tokens, the adapter checks the `X-OAuth-Scopes` header when available
+to verify:
 - `repo` or `public_repo` present
 - `security_events` present
+
+Fine-grained tokens do not return the `X-OAuth-Scopes` header, so the adapter
+relies on the API response itself to detect permission errors.
 
 ## Troubleshooting
 
 | Error | Solution |
 |-------|----------|
 | 401 Unauthorized | Token expired or invalid — regenerate |
-| 403 Forbidden | Missing `security_events` scope — update token |
+| 403 Forbidden | Classic PAT: missing `security_events` scope. Fine-grained PAT: missing `Code scanning alerts` permission — update token |
 | 404 Not Found | Repository not found or no access — check repo name |
 | 429 Rate Limited | Wait 1 hour or use token with higher rate limit |
 

@@ -161,7 +161,11 @@
             <input type="password" id="github-token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
             <button type="button" class="toggle-password" id="toggle-github-token">Show</button>
           </div>
-          <p class="form-hint">Requires <code>repo</code> and <code>security_events</code> scopes. <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">Create a token</a>.</p>
+          <p class="form-hint">
+            Use a <strong>Classic PAT</strong> with <code>repo</code> + <code>security_events</code> scopes,
+            or a <strong>Fine-grained PAT</strong> with <code>Metadata</code> (read) + <code>Code scanning alerts</code> (read) permissions.
+            <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">Create a token</a>.
+          </p>
         </div>
 
         <div class="form-group">
