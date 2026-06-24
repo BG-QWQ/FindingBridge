@@ -10,7 +10,7 @@ describe('SocketAdapter', () => {
 
   it('tests connection by listing organizations', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      jsonResponse({ organizations: { acme: { id: 'org-1', name: 'Acme' } } })
+      jsonResponse({ organizations: { '363089': { id: '363089', name: 'Acme', slug: 'acme' } } })
     );
 
     const adapter = new SocketAdapter({ token: 'token-123' });
@@ -32,8 +32,8 @@ describe('SocketAdapter', () => {
 
   it('fetches findings with cursor pagination', async () => {
     vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ items: [alert('alert-1')], endCursor: 'cursor-2', totalCount: 2 }))
-      .mockResolvedValueOnce(jsonResponse({ items: [alert('alert-2')], endCursor: null, totalCount: 2 }));
+      .mockResolvedValueOnce(jsonResponse({ items: [alert('alert-1')], endCursor: 'cursor-2' }))
+      .mockResolvedValueOnce(jsonResponse({ items: [alert('alert-2')], endCursor: null }));
 
     const adapter = new SocketAdapter({ token: 'token-123', orgSlug: 'acme' });
     const firstPage = await adapter.fetchFindings({});
@@ -55,7 +55,7 @@ describe('SocketAdapter', () => {
   it('passes repository scope through to the client', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ items: [alert('alert-1')], endCursor: null, totalCount: 1 }));
+      .mockResolvedValueOnce(jsonResponse({ items: [alert('alert-1')], endCursor: null }));
 
     const adapter = new SocketAdapter({
       token: 'token-123',

@@ -5,6 +5,7 @@ export const SocketOrganizationEntrySchema = z
   .object({
     id: z.string(),
     name: z.string().nullable().optional(),
+    slug: z.string().optional(),
   })
   .passthrough();
 
@@ -39,12 +40,17 @@ export const SocketAlertSchema = z
   })
   .passthrough();
 
-/** Validate the Socket.dev alerts response. */
+/** Validate the Socket.dev alerts response.
+ *
+ * The live /alerts endpoint returns items, endCursor, and meta, but does not
+ * include a totalCount field. Keep it optional so mocks and future API changes
+ * do not break ingestion.
+ */
 export const SocketAlertsResponseSchema = z
   .object({
     items: z.array(SocketAlertSchema),
     endCursor: z.string().nullable(),
-    totalCount: z.number().int(),
+    totalCount: z.number().int().optional(),
   })
   .passthrough();
 

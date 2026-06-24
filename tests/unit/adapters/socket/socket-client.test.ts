@@ -25,7 +25,7 @@ describe('SocketClient', () => {
 
   it('calls the alerts endpoint with the default page size and headers', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse({ items: [], endCursor: null, totalCount: 0 })
+      jsonResponse({ items: [], endCursor: null })
     );
     const client = new SocketClient({ token: 'token-123', apiBaseUrl: 'https://api.socket.dev/v0' });
 
@@ -58,7 +58,7 @@ describe('SocketClient', () => {
 
   it('filters alerts by repository full name when scoped to the current project', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse({ items: [], endCursor: null, totalCount: 0 })
+      jsonResponse({ items: [], endCursor: null })
     );
     const client = new SocketClient({ token: 'token-123', apiBaseUrl: 'https://api.socket.dev/v0' });
 
@@ -87,6 +87,23 @@ describe('SocketClient', () => {
         { slug: 'acme', name: 'Acme Inc.' },
         { slug: 'acme-labs', name: undefined },
       ],
+      hasMore: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefers the slug field when organizations are keyed by numeric id', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        organizations: {
+          '363089': { id: '363089', name: 'BG', slug: 'bg-8npfpbx8' },
+        },
+      })
+    );
+    const client = new SocketClient({ token: 'token-123', apiBaseUrl: 'https://api.socket.dev/v0' });
+
+    await expect(client.listOrganizations()).resolves.toEqual({
+      organizations: [{ slug: 'bg-8npfpbx8', name: 'BG' }],
       hasMore: false,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);

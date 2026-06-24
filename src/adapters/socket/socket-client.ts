@@ -37,8 +37,8 @@ export class SocketClient {
       const response = await this.request('/organizations');
       const body = (await response.json()) as unknown;
       const parsed = SocketOrganizationsResponseSchema.parse(body);
-      const organizations = Object.entries(parsed.organizations).map(([slug, organization]) => ({
-        slug,
+      const organizations = Object.entries(parsed.organizations).map(([key, organization]) => ({
+        slug: organization.slug ?? key,
         name: organization.name ?? undefined,
       }));
       return { organizations, hasMore: false };
@@ -73,7 +73,7 @@ export class SocketClient {
       return {
         alerts: parsed.items,
         endCursor: parsed.endCursor,
-        totalCount: parsed.totalCount,
+        totalCount: parsed.totalCount ?? parsed.items.length,
       };
     } catch (error: unknown) {
       throw toAdapterError(error, {
