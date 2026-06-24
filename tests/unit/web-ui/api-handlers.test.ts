@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from '@/config/validation.js';
@@ -94,6 +95,13 @@ describe('handleApiRequest', () => {
 
     expect(handled).toBe(false);
     expect(response.body).toBe('');
+  });
+
+  it('documents the minimum Socket.dev token scope in the setup form', () => {
+    const markup = readFileSync('src/web-ui/index.html', 'utf-8');
+
+    expect(markup).toContain('alerts:list');
+    expect(markup).toContain('No repository write scopes are required');
   });
 
   it('rejects unknown setup API routes with JSON 404', async () => {
