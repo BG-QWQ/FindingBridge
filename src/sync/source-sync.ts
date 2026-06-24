@@ -20,6 +20,7 @@ import type { SyncLog } from '../core/models/sync-log.js';
 import { FindingRepository } from '../database/repositories/finding-repo.js';
 import { SyncRepository } from '../database/repositories/sync-repo.js';
 import { redactSecrets } from '../utils/redaction.js';
+import { resolveSnykOrganizationId, withSnykOrganizationId } from './snyk-organization-resolution.js';
 
 const DEFAULT_MAX_PAGES = 20;
 const execFileAsync = promisify(execFile);
@@ -30,7 +31,7 @@ type GitHubRepositoryIdentity = {
 };
 
 type SonarCloudProjectListClient = Pick<SonarCloudClient, 'listProjects'>;
-type SnykProjectListClient = Pick<SnykClient, 'listProjects'>;
+type SnykProjectListClient = Pick<SnykClient, 'listOrganizations' | 'listProjects'>;
 
 type SourceSelection = {
   sources: SourceConfig[];
@@ -283,7 +284,7 @@ export class SourceSyncService {
           continue;
         }
 
-        const inferred = await this.inferSnykProjectSource(source, repository, maxPages);
+        const inferred = await this.inferSnykProjectSource(source, repository, projectKeys, maxPages);
         if ('source' in inferred) {
           selected.push(inferred.source);
         } else {
@@ -393,9 +394,10 @@ export class SourceSyncService {
   private async inferSnykProjectSource(
     source: SourceConfig,
     repository: GitHubRepositoryIdentity,
+    projectKeys: Record<string, string> | undefined,
     maxPages: number
   ): Promise<{ source: SourceConfig } | { skipped: SourceSyncResult }> {
-    const organization = readStringOption(source, 'organization') ?? readStringOption(source, 'org_id');
+    const organization = readStringOption(source, 'organization') ?? readStringOption(source, 'org_id') ?? projectKeys?.[source.id]?.trim();
     if (!organization) {
       return {
         skipped: createSkippedSourceResult(source, {
@@ -419,7 +421,9 @@ export class SourceSyncService {
         });
       }
 
-      const projectList = await listSnykProjects(organization, this.createSnykClient(source, token), maxPages);
+      const client = this.createSnykClient(source, token);
+      const orgId = await resolveSnykOrganizationId(organization, client, maxPages);
+      const projectList = await listSnykProjects(orgId, client, maxPages);
       if (projectList.truncated) {
         return {
           skipped: createSkippedSourceResult(source, {
@@ -446,7 +450,7 @@ export class SourceSyncService {
       }
 
       return {
-        source: scopedSource(source, repository, projectIds),
+        source: scopedSource(withSnykOrganizationId(source, orgId), repository, projectIds),
       };
     } catch (error: unknown) {
       const message = redactSecrets(error instanceof Error ? error.message : String(error));
@@ -916,7 +920,7 @@ function findSnykProjectIdsForRepository(
         return false;
       }
       const normalized = project.targetUrl.toLowerCase().replace(/\.git$/, '');
-      return normalized.includes(fullName) || normalized.endsWith(fullName.split('/')[1] ?? '');
+      return normalized.includes(fullName);
     })
     .map((project) => project.id);
 }

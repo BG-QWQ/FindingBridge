@@ -506,6 +506,7 @@ describe('SourceSyncService', () => {
     const { observedSources, service } = createObservedSyncService({
       db,
       config,
+      snykOrganizations: [{ id: 'org-123' }],
       snykProjects: [{ id: 'snyk-proj-web', target: { url: 'https://github.com/acme/web' } }],
     });
 
@@ -520,6 +521,83 @@ describe('SourceSyncService', () => {
     expect(semgrepSource?.options.repository_full_name).toBe('acme/web');
     expect(snykSource?.options.repository_full_name).toBe('acme/web');
     expect(snykSource?.options.project_ids).toEqual(['snyk-proj-web']);
+  });
+
+  it('resolves Snyk organization slugs to REST organization IDs during default sync', async () => {
+    const config = createConfig([
+      {
+        id: 'snyk',
+        type: 'snyk',
+        enabled: true,
+        token_ref: 'snyk',
+        options: { org_id: 'acme-slug' },
+      },
+    ]);
+    const { observedSnykProjectOrgIds, observedSources, service } = createObservedSyncService({
+      db,
+      config,
+      snykOrganizations: [{ id: 'org-uuid', name: 'Acme', slug: 'acme-slug' }],
+      snykProjects: [{ id: 'snyk-proj-web', target: { url: 'https://github.com/acme/web' } }],
+    });
+
+    const result = await service.syncSources();
+
+    expect(result).toMatchObject({ sources_total: 1, sources_synced: 1, sources_skipped: 0 });
+    expect(observedSnykProjectOrgIds).toEqual(['org-uuid']);
+    const snykSource = observedSources.find((source) => source.id === 'snyk');
+    expect(snykSource?.options.organization).toBe('org-uuid');
+    expect(snykSource?.options.org_id).toBe('org-uuid');
+    expect(config.sources[0]?.options.org_id).toBe('acme-slug');
+  });
+
+  it('uses per-call Snyk project key overrides during default inference', async () => {
+    const config = createConfig([
+      {
+        id: 'snyk',
+        type: 'snyk',
+        enabled: true,
+        token_ref: 'snyk',
+        options: {},
+      },
+    ]);
+    const { observedSnykProjectOrgIds, observedSources, service } = createObservedSyncService({
+      db,
+      config,
+      snykOrganizations: [{ id: 'override-org' }],
+      snykProjects: [{ id: 'snyk-proj-web', target: { url: 'https://github.com/acme/web' } }],
+    });
+
+    const result = await service.syncSources({ projectKeys: { snyk: 'override-org' } });
+
+    expect(result).toMatchObject({ sources_total: 1, sources_synced: 1, sources_skipped: 0 });
+    expect(observedSnykProjectOrgIds).toEqual(['override-org']);
+    const snykSource = observedSources.find((source) => source.id === 'snyk');
+    expect(snykSource?.options.organization).toBe('override-org');
+    expect(config.sources[0]?.options.organization).toBeUndefined();
+  });
+
+  it('does not match Snyk projects from a different owner with the same repository name', async () => {
+    const config = createConfig([
+      {
+        id: 'snyk',
+        type: 'snyk',
+        enabled: true,
+        token_ref: 'snyk',
+        options: { organization: 'org-123' },
+      },
+    ]);
+    const { observedSources, service } = createObservedSyncService({
+      db,
+      config,
+      snykOrganizations: [{ id: 'org-123' }],
+      snykProjects: [{ id: 'snyk-proj-other-web', target: { url: 'https://github.com/other/web' } }],
+    });
+
+    const result = await service.syncSources();
+
+    expect(result).toMatchObject({ sources_total: 1, sources_synced: 0, sources_skipped: 1 });
+    expectObservedSourceIds(observedSources, []);
+    expectSkippedSource(result, 'snyk', 'Snyk source snyk had no project match for acme/web.');
   });
 
   it('skips account-scoped sources when no current GitHub repository is detected', async () => {
@@ -590,6 +668,7 @@ describe('SourceSyncService', () => {
     const { observedSources, service } = createObservedSyncService({
       db,
       config,
+      snykOrganizations: [{ id: 'org-123' }],
       snykProjects: [{ id: 'snyk-proj-api', target: { url: 'https://github.com/acme/api' } }],
     });
 
@@ -638,6 +717,7 @@ describe('SourceSyncService', () => {
     const { observedSources, service } = createObservedSyncService({
       db,
       config,
+      snykOrganizations: [{ id: 'acme' }],
     });
 
     const result = await service.syncSources();
@@ -1054,12 +1134,15 @@ function createObservedSyncService(options: {
   config: Config;
   repository?: { owner: string; repo: string } | null;
   projects?: Array<{ key: string; name: string; project?: string }> | Array<Array<{ key: string; name: string; project?: string }>>;
+  snykOrganizations?: Array<{ id: string; name?: string; slug?: string }>;
   snykProjects?: Array<{ id: string; target?: { url?: string } }>;
   discoveryFailureMessage?: string;
-}): { observedSources: SourceConfig[]; service: SourceSyncService } {
+}): { observedSnykProjectOrgIds: string[]; observedSources: SourceConfig[]; service: SourceSyncService } {
   const observedSources: SourceConfig[] = [];
+  const observedSnykProjectOrgIds: string[] = [];
   const currentRepository = options.repository === undefined ? { owner: 'acme', repo: 'web' } : options.repository ?? undefined;
   return {
+    observedSnykProjectOrgIds,
     observedSources,
     service: new SourceSyncService({
       db: options.db,
@@ -1073,7 +1156,11 @@ function createObservedSyncService(options: {
         }
         return new StaticSonarCloudProjectClient(options.projects ?? []);
       },
-      createSnykClient: () => new StaticSnykProjectClient(options.snykProjects ?? []),
+      createSnykClient: () => new StaticSnykProjectClient(
+        options.snykProjects ?? [],
+        options.snykOrganizations ?? [],
+        observedSnykProjectOrgIds
+      ),
       createAdapter: async (source) => {
         observedSources.push(source);
         return new StaticAdapter([createFinding({ id: `fb-${source.id}`, fingerprint: `${source.id}-fingerprint` })]);
@@ -1169,10 +1256,21 @@ class StaticSonarCloudProjectClient {
 }
 
 class StaticSnykProjectClient {
-  constructor(private readonly projects: Array<{ id: string; target?: { url?: string } }>) {}
+  constructor(
+    private readonly projects: Array<{ id: string; target?: { url?: string } }>,
+    private readonly organizations: Array<{ id: string; name?: string; slug?: string }>,
+    private readonly observedProjectOrgIds: string[]
+  ) {}
+
+  async listOrganizations(): Promise<{
+    organizations: Array<{ id: string; name?: string; slug?: string }>;
+    nextCursor?: string;
+  }> {
+    return { organizations: this.organizations };
+  }
 
   async listProjects(
-    _orgId: string,
+    orgId: string,
     _options?: { cursor?: string; limit?: number }
   ): Promise<{
     projects: Array<{
@@ -1182,6 +1280,7 @@ class StaticSnykProjectClient {
     }>;
     nextCursor?: string;
   }> {
+    this.observedProjectOrgIds.push(orgId);
     return {
       projects: this.projects.map((project) => ({
         id: project.id,
