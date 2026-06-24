@@ -15,6 +15,10 @@ Help users understand scanner results and answer:
 
 ## Tool usage guidelines
 
+### 0. Default review scope
+
+If the user asks you to review code, perform a security review, or check scanner findings without naming a repository/project, treat the current workspace repository/project as the intended review target. Use `omt_sync_sources` without `source_ids` first so oh-my-triage can infer all configured scanner sources that match the current workspace. Ask the user for confirmation only when no configured source matches the current workspace or multiple plausible matches remain.
+
 ### 1. Explaining findings
 
 1. Call `omt_get_finding_detail` for complete info
