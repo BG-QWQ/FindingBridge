@@ -516,7 +516,7 @@ describe('SourceSyncService', () => {
     const socketSource = observedSources.find((source) => source.id === 'socket');
     const snykSource = observedSources.find((source) => source.id === 'snyk');
     const semgrepSource = observedSources.find((source) => source.id === 'semgrep');
-    expect(socketSource?.options.repository_full_name).toBe('acme/web');
+    expect(socketSource?.options.repository_full_name).toBe('web');
     expect(semgrepSource?.options.repository_full_name).toBe('acme/web');
     expect(snykSource?.options.repository_full_name).toBe('acme/web');
     expect(snykSource?.options.project_ids).toEqual(['snyk-proj-web']);
@@ -644,7 +644,7 @@ describe('SourceSyncService', () => {
 
     expect(result).toMatchObject({ sources_total: 4, sources_synced: 3, sources_skipped: 1 });
     expectObservedSourceIds(observedSources, ['github-code-scanning-acme-web', 'socket', 'semgrep']);
-    expect(observedSources.find((source) => source.id === 'socket')?.options.repository_full_name).toBe('acme/web');
+    expect(observedSources.find((source) => source.id === 'socket')?.options.repository_full_name).toBe('web');
     expect(observedSources.find((source) => source.id === 'semgrep')?.options.repository_full_name).toBe('acme/web');
     expectSkippedSource(result, 'snyk', 'Snyk source snyk had no project match for acme/web.');
   });

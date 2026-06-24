@@ -848,7 +848,9 @@ function scopedSource(
   repository: GitHubRepositoryIdentity,
   projectIds?: string[]
 ): SourceConfig {
-  const repositoryFullName = `${repository.owner}/${repository.repo}`;
+  const repositoryFullName = source.type === 'socket'
+    ? repository.repo
+    : `${repository.owner}/${repository.repo}`;
   return {
     ...source,
     options: {
