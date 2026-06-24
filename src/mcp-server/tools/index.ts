@@ -38,7 +38,7 @@ const LOCAL_WRITE_TOOL_ANNOTATIONS: ToolAnnotations = {
 };
 
 const WORKSPACE_CONFIRMATION_DESCRIPTION =
-  'Before relying on results as applying to the current workspace, confirm the repository/project with the user and match it to the configured oh-my-triage database or synchronized scanner source.';
+  'If the user asks for a code review or security review without naming a repository/project, default the review target to the current workspace repository/project. Ask for confirmation only when the configured database or scanner source cannot be matched to that workspace, or when discovered project matches are ambiguous.';
 
 /**
  * Register every oh-my-triage MCP tool on the server.
@@ -146,7 +146,7 @@ export function registerOMTTools(
     {
       title: 'List Source Projects',
       description:
-        'List projects visible to configured scanner source credentials, such as SonarCloud project keys. The MCP server cannot reliably auto-detect the client workspace; have the user confirm every discovered scanner project that matches the current repository across configured sources before synchronization. SonarCloud discovery is organization-scoped; pass organizations[source_id] when the source config lacks an organization. Use this when synchronization needs project_keys before reading current platform findings, then call omt_sync_sources without source_ids and pass a complete project_keys map for all matching sources that need keys.',
+        'List projects visible to configured scanner source credentials, such as SonarCloud project keys. When a code review request does not name a repository/project, use the current workspace repository as the intended target and select discovered projects that exactly match that workspace; ask the user only if no match or multiple plausible matches remain. SonarCloud discovery is organization-scoped; pass organizations[source_id] when the source config lacks an organization. Use this when synchronization needs project_keys before reading current platform findings, then call omt_sync_sources without source_ids and pass a complete project_keys map for all matching sources that need keys.',
       inputSchema: ListSourceProjectsInputSchema.shape,
       annotations: { ...READ_ONLY_TOOL_ANNOTATIONS, title: 'List Source Projects', openWorldHint: true },
     },

@@ -439,8 +439,8 @@ describe('MCP no-data responses', () => {
     const prompt = promptHandler().messages[0]?.content.text ?? '';
 
     expect(prompt).toContain('omit source_ids');
-    expect(prompt).toContain('all scanner sources for the confirmed current workspace repository');
-    expect(prompt).toContain('project_keys for every confirmed matching scanner source');
+    expect(prompt).toContain('all scanner sources matching the current workspace repository');
+    expect(prompt).toContain('project_keys for every matching scanner source');
   });
 });
 
