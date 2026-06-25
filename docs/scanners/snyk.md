@@ -8,6 +8,8 @@
 2. Generate a personal access token or service account token with REST API access
 3. Copy the token
 
+Snyk public REST API access is controlled by both token permissions and the Snyk organization plan or contract. A token can be valid for login, organization listing, and the Snyk Web UI while the public REST `projects` or `issues` APIs still return `403 Forbidden` because API access is not included in the plan.
+
 ### 2. Configure oh-my-triage
 
 ```bash
@@ -28,6 +30,14 @@ oh-my-triage validates your token by:
 1. Calling `GET /rest/orgs?version=2024-10-15`
 2. Confirming the token can list organizations
 3. Optionally testing issue access when an organization ID is configured
+
+Passing organization validation does not prove full Snyk sync will work. Full sync requires public REST access to project and issue endpoints, which Snyk may restrict by plan or contract even for organization administrators.
+
+## Plan and Testing Limitations
+
+The Snyk adapter is implemented against Snyk's public REST API. In environments without Snyk API entitlement, maintainers can verify only the parts that Snyk exposes without that entitlement, such as authentication, organization discovery, and sometimes target visibility. They cannot complete live testing of project and issue synchronization unless a Snyk organization with public REST API access is available.
+
+If you see `Snyk REST API access is forbidden` while the same account can browse projects in the Snyk Web UI, the likely cause is plan or contract entitlement rather than an invalid token. The Web UI may use internal endpoints that remain available while public REST `projects` and `issues` endpoints are blocked.
 
 ## Sync Behavior
 
@@ -83,6 +93,7 @@ If your Snyk organization uses a regional endpoint, set `api_url` in the source 
 | Invalid token | Generate a new Snyk token with REST API access |
 | Missing organization ID | Save `options.organization` or pass `org_id` |
 | No organizations found | Verify the token is active and belongs to the expected Snyk group |
+| `Snyk REST API access is forbidden` | Confirm the Snyk organization has public REST API access enabled in its plan or contract, then use a token that can read projects and issues |
 | 429 rate limit | Reduce sync frequency or use a dedicated service account |
 
 ## Privacy

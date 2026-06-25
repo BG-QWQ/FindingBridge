@@ -49,7 +49,7 @@ npx oh-my-triage@latest server --demo
 | GitHub Code Scanning | ✅ | Personal Access Token |
 | SonarCloud | ✅ | User Token |
 | Socket.dev | ✅ | Organization API Token |
-| Snyk | ✅ | Personal/Service Access Token |
+| Snyk | ⚠️ Plan-dependent | See [Snyk setup notes](docs/scanners/snyk.md) |
 | Semgrep | ✅ | Web API Token |
 
 ## 🛠️ MCP Tools
