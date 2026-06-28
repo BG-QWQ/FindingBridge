@@ -86,6 +86,33 @@ describe('mapSemgrepFindingToFinding', () => {
     const result = mapSemgrepFindingToFinding(semgrepFinding);
     expect(result.severity).toBe('high');
   });
+
+  it('maps live Semgrep location and rule fields to a valid Finding', () => {
+    const result = mapSemgrepFindingToFinding({
+      id: '12345',
+      severity: 'medium',
+      status: 'open',
+      rule_name: 'typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml',
+      rule_message: 'Avoid dangerouslySetInnerHTML',
+      location: {
+        file_path: 'src/web-ui/app.ts',
+        line: 42,
+      },
+      rule: {
+        name: 'React dangerouslySetInnerHTML',
+        message: 'Avoid dangerouslySetInnerHTML',
+        cwe_names: ['CWE-79'],
+      },
+    });
+
+    expect(result.source.original_id).toBe('12345');
+    expect(result.source.rule_id).toBe('typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml');
+    expect(result.message).toBe('Avoid dangerouslySetInnerHTML');
+    expect(result.location.file_path).toBe('src/web-ui/app.ts');
+    expect(result.location.start_line).toBe(42);
+    expect(result.cwe_id).toBe('CWE-79');
+    expect(() => Finding.parse(result)).not.toThrow();
+  });
 });
 
 function finding(id: string): SemgrepFinding {

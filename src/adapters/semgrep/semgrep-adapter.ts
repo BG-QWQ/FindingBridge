@@ -84,10 +84,10 @@ export class SemgrepAdapter implements BaseAdapter {
 
 /** Map one Semgrep finding into the canonical Finding model. */
 export function mapSemgrepFindingToFinding(finding: SemgrepFinding, projectRoot?: string): Finding {
-  const ruleId = finding.ruleId ?? finding.rule?.id ?? 'semgrep-finding';
-  const ruleName = finding.rule?.name ?? finding.title ?? ruleId;
-  const message = finding.message ?? finding.rule?.message ?? ruleName;
-  const filePath = finding.path ?? finding.location?.path ?? 'semgrep:unknown';
+  const ruleId = finding.ruleId ?? finding.rule?.id ?? finding.rule_name ?? 'semgrep-finding';
+  const ruleName = finding.rule?.name ?? finding.title ?? finding.rule_name ?? ruleId;
+  const message = finding.message ?? finding.rule?.message ?? finding.rule_message ?? ruleName;
+  const filePath = finding.path ?? finding.location?.path ?? finding.location?.file_path ?? 'semgrep:unknown';
   const startLine = finding.location?.line ?? 1;
   const rawSeverity = finding.severity ?? 'INFO';
   const mapped = mapFields({
@@ -150,7 +150,7 @@ function mapSemgrepStatus(finding: SemgrepFinding): FindingStatus {
 }
 
 function extractCweId(finding: SemgrepFinding): string | undefined {
-  const names = finding.rule?.cweNames;
+  const names = finding.rule?.cweNames ?? finding.rule?.cwe_names;
   if (Array.isArray(names) && names.length > 0) {
     const match = /CWE-(\d+)/i.exec(String(names[0]));
     return match ? `CWE-${match[1]}` : undefined;
