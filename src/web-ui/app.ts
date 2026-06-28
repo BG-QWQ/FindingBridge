@@ -203,6 +203,98 @@ function removeLoading(container: HTMLElement): void {
   container.querySelectorAll('.loading-overlay').forEach((el) => el.remove());
 }
 
+/** Bind a button to toggle the visibility of a password input. */
+function bindPasswordVisibilityToggle(tokenInput: HTMLInputElement, toggleBtn: HTMLButtonElement): void {
+  toggleBtn.addEventListener('click', () => {
+    const isPassword = tokenInput.type === 'password';
+    tokenInput.type = isPassword ? 'text' : 'password';
+    toggleBtn.textContent = isPassword ? 'Hide' : 'Show';
+  });
+}
+
+/** Bind an input so its trimmed value is written to state on every input event. */
+function bindTrimmedInput(input: HTMLInputElement, applyValue: (value: string) => void): void {
+  input.addEventListener('input', () => {
+    applyValue(input.value.trim());
+  });
+}
+
+/** Status message produced for a failed connection test. */
+export type ConnectionStatusMessage = {
+  type: 'error' | 'warning';
+  message: string;
+};
+
+/** Build the error and optional warning messages for an invalid connection result. */
+export function buildInvalidConnectionMessages(
+  result: TestConnectionResponse,
+  fallbackMessage: string
+): ConnectionStatusMessage[] {
+  if (result.valid) {
+    return [];
+  }
+
+  const messages: ConnectionStatusMessage[] = [
+    { type: 'error', message: result.reason ?? fallbackMessage },
+  ];
+  if (result.suggestion) {
+    messages.push({ type: 'warning', message: result.suggestion });
+  }
+  return messages;
+}
+
+/** Format a connection-test error consistently across scanner handlers. */
+export function formatConnectionTestError(err: unknown): string {
+  return `Connection test failed: ${err instanceof Error ? err.message : 'Unknown error'}`;
+}
+
+/** Options that parameterize the shared scanner connection-test flow. */
+type ConnectionTestOptions = {
+  scanner: ScannerType;
+  validate: () => string | undefined;
+  loadingMessage: string;
+  buildConfig: () => Record<string, unknown>;
+  invalidFallbackMessage: string;
+  formatSuccess: (result: TestConnectionResponse) => string;
+  onValid?: (result: TestConnectionResponse) => void;
+};
+
+/** Run a scanner connection test and update the wizard state and UI. */
+async function runScannerConnectionTest(
+  testBtn: HTMLButtonElement,
+  statusContainer: HTMLElement,
+  options: ConnectionTestOptions
+): Promise<void> {
+  const missing = options.validate();
+  if (missing) {
+    showStatus(statusContainer, 'error', missing);
+    return;
+  }
+
+  showLoading(statusContainer, options.loadingMessage);
+  testBtn.disabled = true;
+
+  try {
+    const result = await testConnection(options.scanner, options.buildConfig());
+    removeLoading(statusContainer);
+
+    if (result.valid) {
+      state.connectionResults.set(options.scanner, result);
+      options.onValid?.(result);
+      showStatus(statusContainer, 'success', options.formatSuccess(result));
+    } else {
+      for (const message of buildInvalidConnectionMessages(result, options.invalidFallbackMessage)) {
+        showStatus(statusContainer, message.type, message.message);
+      }
+    }
+  } catch (err) {
+    removeLoading(statusContainer);
+    showStatus(statusContainer, 'error', formatConnectionTestError(err));
+  } finally {
+    testBtn.disabled = false;
+  }
+}
+
 // ── Step navigation ──────────────────────────────────────────────────
 
 /** Determine which step comes next based on selected scanners */
@@ -353,16 +445,10 @@ function initGithubConfigStep(): void {
 
   tokenInput.value = state.githubToken;
 
-  // Toggle password visibility
-  const toggleBtn = $<HTMLButtonElement>('#toggle-github-token');
-  toggleBtn.addEventListener('click', () => {
-    const isPassword = tokenInput.type === 'password';
-    tokenInput.type = isPassword ? 'text' : 'password';
-    toggleBtn.textContent = isPassword ? 'Hide' : 'Show';
-  });
+  bindPasswordVisibilityToggle(tokenInput, $<HTMLButtonElement>('#toggle-github-token'));
 
-  tokenInput.addEventListener('input', () => {
-    state.githubToken = tokenInput.value.trim();
+  bindTrimmedInput(tokenInput, (value) => {
+    state.githubToken = value;
     state.githubOrg = '';
     state.githubRepositories = [];
     state.githubSelectedRepositories.clear();
@@ -383,40 +469,23 @@ function initGithubConfigStep(): void {
 
 /** Test GitHub connectivity and update the wizard state. */
 async function handleGithubConnectionTest(testBtn: HTMLButtonElement, statusContainer: HTMLElement): Promise<void> {
-  if (!state.githubToken) {
-    showStatus(statusContainer, 'error', 'Please enter a GitHub token first.');
-    return;
-  }
-
-  showLoading(statusContainer, 'Testing GitHub connection...');
-  testBtn.disabled = true;
-
-  try {
-    const result = await testConnection('github', {
-      token: state.githubToken,
-    });
-    removeLoading(statusContainer);
-
-    if (result.valid) {
-      state.connectionResults.set('github', result);
+  await runScannerConnectionTest(testBtn, statusContainer, {
+    scanner: 'github',
+    validate: () =>
+      state.githubToken ? undefined : 'Please enter a GitHub token first.',
+    loadingMessage: 'Testing GitHub connection...',
+    buildConfig: () => ({ token: state.githubToken }),
+    invalidFallbackMessage: 'Connection failed. Check your token and permissions.',
+    formatSuccess: (result) =>
+      `Connected! Found ${result.projects_found ?? 0} accessible repositories.`,
+    onValid: (result) => {
       state.githubRepositories = result.repositories ?? [];
       renderGithubRepositoryOptions(
         $<HTMLSelectElement>('#github-org'),
         $<HTMLElement>('#github-repo-list')
       );
-      showStatus(statusContainer, 'success', `Connected! Found ${result.projects_found ?? 0} accessible repositories.`);
-    } else {
-      showStatus(statusContainer, 'error', result.reason ?? 'Connection failed. Check your token and permissions.');
-      if (result.suggestion) {
-        showStatus(statusContainer, 'warning', result.suggestion);
-      }
-    }
-  } catch (err) {
-    removeLoading(statusContainer);
-    showStatus(statusContainer, 'error', `Connection test failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-  } finally {
-    testBtn.disabled = false;
-  }
+    },
+  });
 }
 
 /** Populate GitHub owner and repository selectors from discovered repositories. */
@@ -515,21 +584,9 @@ function initSonarcloudConfigStep(): void {
   tokenInput.value = state.sonarcloudToken;
   organizationInput.value = state.sonarcloudOrganization;
 
-  // Toggle password visibility
-  const toggleBtn = $<HTMLButtonElement>('#toggle-sonarcloud-token');
-  toggleBtn.addEventListener('click', () => {
-    const isPassword = tokenInput.type === 'password';
-    tokenInput.type = isPassword ? 'text' : 'password';
-    toggleBtn.textContent = isPassword ? 'Hide' : 'Show';
-  });
-
-  tokenInput.addEventListener('input', () => {
-    state.sonarcloudToken = tokenInput.value.trim();
-  });
-
-  organizationInput.addEventListener('input', () => {
-    state.sonarcloudOrganization = organizationInput.value.trim();
-  });
+  bindPasswordVisibilityToggle(tokenInput, $<HTMLButtonElement>('#toggle-sonarcloud-token'));
+  bindTrimmedInput(tokenInput, (value) => { state.sonarcloudToken = value; });
+  bindTrimmedInput(organizationInput, (value) => { state.sonarcloudOrganization = value; });
 
   // Test connection
   const testBtn = $<HTMLButtonElement>('#test-sonarcloud-connection');
@@ -544,41 +601,26 @@ function initSonarcloudConfigStep(): void {
 
 /** Test SonarCloud connectivity and update the wizard state. */
 async function handleSonarcloudConnectionTest(testBtn: HTMLButtonElement, statusContainer: HTMLElement): Promise<void> {
-    if (!state.sonarcloudToken) {
-      showStatus(statusContainer, 'error', 'Please enter a SonarCloud token first.');
-      return;
-    }
-
-    if (!state.sonarcloudOrganization) {
-      showStatus(statusContainer, 'error', 'Please enter a SonarCloud organization key before loading projects.');
-      return;
-    }
-
-    showLoading(statusContainer, 'Testing SonarCloud connection...');
-    testBtn.disabled = true;
-
-    try {
-      const result = await testConnection('sonarcloud', {
-        token: state.sonarcloudToken,
-        organization: state.sonarcloudOrganization,
-      });
-      removeLoading(statusContainer);
-
-      if (result.valid) {
-        state.connectionResults.set('sonarcloud', result);
-        showStatus(statusContainer, 'success', `Connected! Found ${result.projects_found ?? 0} projects.`);
-      } else {
-        showStatus(statusContainer, 'error', result.reason ?? 'Connection failed. Check your token.');
-        if (result.suggestion) {
-          showStatus(statusContainer, 'warning', result.suggestion);
-        }
+  await runScannerConnectionTest(testBtn, statusContainer, {
+    scanner: 'sonarcloud',
+    validate: () => {
+      if (!state.sonarcloudToken) {
+        return 'Please enter a SonarCloud token first.';
       }
-    } catch (err) {
-      removeLoading(statusContainer);
-      showStatus(statusContainer, 'error', `Connection test failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      testBtn.disabled = false;
-    }
+      if (!state.sonarcloudOrganization) {
+        return 'Please enter a SonarCloud organization key before loading projects.';
+      }
+      return undefined;
+    },
+    loadingMessage: 'Testing SonarCloud connection...',
+    buildConfig: () => ({
+      token: state.sonarcloudToken,
+      organization: state.sonarcloudOrganization,
+    }),
+    invalidFallbackMessage: 'Connection failed. Check your token.',
+    formatSuccess: (result) =>
+      `Connected! Found ${result.projects_found ?? 0} projects.`,
+  });
 }
 
 // ── Step: Socket.dev config ──────────────────────────────────────────
@@ -591,21 +633,9 @@ function initSocketConfigStep(): void {
   tokenInput.value = state.socketToken;
   organizationInput.value = state.socketOrganization;
 
-  // Toggle password visibility
-  const toggleBtn = $<HTMLButtonElement>('#toggle-socket-token');
-  toggleBtn.addEventListener('click', () => {
-    const isPassword = tokenInput.type === 'password';
-    tokenInput.type = isPassword ? 'text' : 'password';
-    toggleBtn.textContent = isPassword ? 'Hide' : 'Show';
-  });
-
-  tokenInput.addEventListener('input', () => {
-    state.socketToken = tokenInput.value.trim();
-  });
-
-  organizationInput.addEventListener('input', () => {
-    state.socketOrganization = organizationInput.value.trim();
-  });
+  bindPasswordVisibilityToggle(tokenInput, $<HTMLButtonElement>('#toggle-socket-token'));
+  bindTrimmedInput(tokenInput, (value) => { state.socketToken = value; });
+  bindTrimmedInput(organizationInput, (value) => { state.socketOrganization = value; });
 
   // Test connection
   const testBtn = $<HTMLButtonElement>('#test-socket-connection');
@@ -616,37 +646,21 @@ function initSocketConfigStep(): void {
 
 /** Test Socket.dev connectivity and update the wizard state. */
 async function handleSocketConnectionTest(testBtn: HTMLButtonElement, statusContainer: HTMLElement): Promise<void> {
-  if (!state.socketToken) {
-    showStatus(statusContainer, 'error', 'Please enter a Socket.dev token first.');
-    return;
-  }
-
-  showLoading(statusContainer, 'Testing Socket.dev connection...');
-  testBtn.disabled = true;
-
-  try {
-    const result = await testConnection('socket', {
+  await runScannerConnectionTest(testBtn, statusContainer, {
+    scanner: 'socket',
+    validate: () =>
+      state.socketToken ? undefined : 'Please enter a Socket.dev token first.',
+    loadingMessage: 'Testing Socket.dev connection...',
+    buildConfig: () => ({
       token: state.socketToken,
       organization: state.socketOrganization || undefined,
-    });
-    removeLoading(statusContainer);
-
-    if (result.valid) {
-      state.connectionResults.set('socket', result);
+    }),
+    invalidFallbackMessage: 'Connection failed. Check your token.',
+    formatSuccess: (result) => {
       const orgCount = result.orgs_found ?? 0;
-      showStatus(statusContainer, 'success', `Connected! Found ${orgCount} organization${orgCount === 1 ? '' : 's'}.`);
-    } else {
-      showStatus(statusContainer, 'error', result.reason ?? 'Connection failed. Check your token.');
-      if (result.suggestion) {
-        showStatus(statusContainer, 'warning', result.suggestion);
-      }
-    }
-  } catch (err) {
-    removeLoading(statusContainer);
-    showStatus(statusContainer, 'error', `Connection test failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-  } finally {
-    testBtn.disabled = false;
-  }
+      return `Connected! Found ${orgCount} organization${orgCount === 1 ? '' : 's'}.`;
+    },
+  });
 }
 
 // ── Step: Snyk config ────────────────────────────────────────────────
@@ -659,21 +673,9 @@ function initSnykConfigStep(): void {
   tokenInput.value = state.snykToken;
   organizationInput.value = state.snykOrganization;
 
-  // Toggle password visibility
-  const toggleBtn = $<HTMLButtonElement>('#toggle-snyk-token');
-  toggleBtn.addEventListener('click', () => {
-    const isPassword = tokenInput.type === 'password';
-    tokenInput.type = isPassword ? 'text' : 'password';
-    toggleBtn.textContent = isPassword ? 'Hide' : 'Show';
-  });
-
-  tokenInput.addEventListener('input', () => {
-    state.snykToken = tokenInput.value.trim();
-  });
-
-  organizationInput.addEventListener('input', () => {
-    state.snykOrganization = organizationInput.value.trim();
-  });
+  bindPasswordVisibilityToggle(tokenInput, $<HTMLButtonElement>('#toggle-snyk-token'));
+  bindTrimmedInput(tokenInput, (value) => { state.snykToken = value; });
+  bindTrimmedInput(organizationInput, (value) => { state.snykOrganization = value; });
 
   // Test connection
   const testBtn = $<HTMLButtonElement>('#test-snyk-connection');
@@ -684,37 +686,21 @@ function initSnykConfigStep(): void {
 
 /** Test Snyk connectivity and update the wizard state. */
 async function handleSnykConnectionTest(testBtn: HTMLButtonElement, statusContainer: HTMLElement): Promise<void> {
-  if (!state.snykToken) {
-    showStatus(statusContainer, 'error', 'Please enter a Snyk token first.');
-    return;
-  }
-
-  showLoading(statusContainer, 'Testing Snyk connection...');
-  testBtn.disabled = true;
-
-  try {
-    const result = await testConnection('snyk', {
+  await runScannerConnectionTest(testBtn, statusContainer, {
+    scanner: 'snyk',
+    validate: () =>
+      state.snykToken ? undefined : 'Please enter a Snyk token first.',
+    loadingMessage: 'Testing Snyk connection...',
+    buildConfig: () => ({
       token: state.snykToken,
       org_id: state.snykOrganization || undefined,
-    });
-    removeLoading(statusContainer);
-
-    if (result.valid) {
-      state.connectionResults.set('snyk', result);
+    }),
+    invalidFallbackMessage: 'Connection failed. Check your token.',
+    formatSuccess: (result) => {
       const orgCount = result.orgs_found ?? 0;
-      showStatus(statusContainer, 'success', `Connected! Found ${orgCount} organization${orgCount === 1 ? '' : 's'}.`);
-    } else {
-      showStatus(statusContainer, 'error', result.reason ?? 'Connection failed. Check your token.');
-      if (result.suggestion) {
-        showStatus(statusContainer, 'warning', result.suggestion);
-      }
-    }
-  } catch (err) {
-    removeLoading(statusContainer);
-    showStatus(statusContainer, 'error', `Connection test failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-  } finally {
-    testBtn.disabled = false;
-  }
+      return `Connected! Found ${orgCount} organization${orgCount === 1 ? '' : 's'}.`;
+    },
+  });
 }
 
 // ── Step: Semgrep config ─────────────────────────────────────────────
@@ -728,21 +714,9 @@ function initSemgrepConfigStep(): void {
   tokenInput.value = state.semgrepToken;
   deploymentInput.value = state.semgrepDeployment;
 
-  // Toggle password visibility
-  const toggleBtn = $<HTMLButtonElement>('#toggle-semgrep-token');
-  toggleBtn.addEventListener('click', () => {
-    const isPassword = tokenInput.type === 'password';
-    tokenInput.type = isPassword ? 'text' : 'password';
-    toggleBtn.textContent = isPassword ? 'Hide' : 'Show';
-  });
-
-  tokenInput.addEventListener('input', () => {
-    state.semgrepToken = tokenInput.value.trim();
-  });
-
-  deploymentInput.addEventListener('input', () => {
-    state.semgrepDeployment = deploymentInput.value.trim();
-  });
+  bindPasswordVisibilityToggle(tokenInput, $<HTMLButtonElement>('#toggle-semgrep-token'));
+  bindTrimmedInput(tokenInput, (value) => { state.semgrepToken = value; });
+  bindTrimmedInput(deploymentInput, (value) => { state.semgrepDeployment = value; });
 
   issueTypeOptions.forEach((option) => {
     const input = option.querySelector<HTMLInputElement>('input[type="radio"]');
@@ -769,37 +743,21 @@ function initSemgrepConfigStep(): void {
 
 /** Test Semgrep connectivity and update the wizard state. */
 async function handleSemgrepConnectionTest(testBtn: HTMLButtonElement, statusContainer: HTMLElement): Promise<void> {
-  if (!state.semgrepToken) {
-    showStatus(statusContainer, 'error', 'Please enter a Semgrep token first.');
-    return;
-  }
-
-  showLoading(statusContainer, 'Testing Semgrep connection...');
-  testBtn.disabled = true;
-
-  try {
-    const result = await testConnection('semgrep', {
+  await runScannerConnectionTest(testBtn, statusContainer, {
+    scanner: 'semgrep',
+    validate: () =>
+      state.semgrepToken ? undefined : 'Please enter a Semgrep token first.',
+    loadingMessage: 'Testing Semgrep connection...',
+    buildConfig: () => ({
       token: state.semgrepToken,
       deployment: state.semgrepDeployment || undefined,
-    });
-    removeLoading(statusContainer);
-
-    if (result.valid) {
-      state.connectionResults.set('semgrep', result);
+    }),
+    invalidFallbackMessage: 'Connection failed. Check your token.',
+    formatSuccess: (result) => {
       const deploymentCount = result.projects_found ?? 0;
-      showStatus(statusContainer, 'success', `Connected! Found ${deploymentCount} deployment${deploymentCount === 1 ? '' : 's'}.`);
-    } else {
-      showStatus(statusContainer, 'error', result.reason ?? 'Connection failed. Check your token.');
-      if (result.suggestion) {
-        showStatus(statusContainer, 'warning', result.suggestion);
-      }
-    }
-  } catch (err) {
-    removeLoading(statusContainer);
-    showStatus(statusContainer, 'error', `Connection test failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-  } finally {
-    testBtn.disabled = false;
-  }
+      return `Connected! Found ${deploymentCount} deployment${deploymentCount === 1 ? '' : 's'}.`;
+    },
+  });
 }
 
 // ── Step: Security settings ──────────────────────────────────────────
