@@ -1,14 +1,19 @@
 import { z } from 'zod';
 
+const SemgrepFindingIdSchema = z.union([z.string(), z.number().finite()]).transform((id) => String(id));
+
 /** Validate one Semgrep finding while preserving scanner-specific fields. */
 export const SemgrepFindingSchema = z
   .object({
-    id: z.string(),
+    id: SemgrepFindingIdSchema,
+    ref: z.string().optional(),
     title: z.string().optional(),
     severity: z.string().optional(),
     path: z.string().optional(),
     message: z.string().optional(),
     ruleId: z.string().optional(),
+    rule_name: z.string().optional(),
+    rule_message: z.string().optional(),
     status: z.string().optional(),
     triage_state: z.string().optional(),
     created_at: z.string().optional(),
@@ -19,12 +24,14 @@ export const SemgrepFindingSchema = z
         name: z.string().optional(),
         message: z.string().optional(),
         cweNames: z.array(z.string()).optional(),
+        cwe_names: z.array(z.string()).optional(),
       })
       .passthrough()
       .optional(),
     location: z
       .object({
         path: z.string().optional(),
+        file_path: z.string().optional(),
         line: z.number().int().min(1).optional(),
       })
       .passthrough()

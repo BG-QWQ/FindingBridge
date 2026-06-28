@@ -138,6 +138,77 @@ describe('SemgrepClient', () => {
     });
   });
 
+  it('parses live Semgrep findings with numeric IDs and nested file locations', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        findings: [
+          {
+            id: 12345,
+            ref: '12345',
+            severity: 'medium',
+            status: 'open',
+            rule_name: 'typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml',
+            rule_message: 'Avoid dangerouslySetInnerHTML',
+            location: {
+              file_path: 'src/web-ui/app.ts',
+              line: 42,
+              column: 7,
+            },
+            rule: {
+              name: 'React dangerouslySetInnerHTML',
+              message: 'Avoid dangerouslySetInnerHTML',
+              cwe_names: ['CWE-79'],
+            },
+          },
+        ],
+      })
+    );
+    const client = new SemgrepClient({ token: 'token-123', apiBaseUrl: 'https://semgrep.dev' });
+
+    await expect(client.listFindings('acme')).resolves.toEqual({
+      findings: [
+        expect.objectContaining({
+          id: '12345',
+          severity: 'medium',
+          status: 'open',
+          rule_name: 'typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml',
+          rule_message: 'Avoid dangerouslySetInnerHTML',
+          location: expect.objectContaining({
+            file_path: 'src/web-ui/app.ts',
+            line: 42,
+          }),
+          rule: expect.objectContaining({
+            name: 'React dangerouslySetInnerHTML',
+            cwe_names: ['CWE-79'],
+          }),
+        }),
+      ],
+      hasMore: false,
+    });
+  });
+
+  it('rejects live Semgrep findings when the finding ID is not a string or number', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        findings: [
+          {
+            id: null,
+            severity: 'medium',
+            location: {
+              file_path: 'src/web-ui/app.ts',
+              line: 42,
+            },
+          },
+        ],
+      })
+    );
+    const client = new SemgrepClient({ token: 'token-123', apiBaseUrl: 'https://semgrep.dev' });
+
+    await expect(client.listFindings('acme')).rejects.toMatchObject({
+      message: expect.stringContaining('Semgrep findings fetch failed.'),
+    });
+  });
+
   it('maps a 401 response to a redacted invalid token error', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       jsonResponse({ error: 'token secret-123 was rejected' }, { status: 401, statusText: 'Unauthorized' })
