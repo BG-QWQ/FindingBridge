@@ -622,6 +622,7 @@ export class SourceSyncService {
           readStringOption(source, 'deployment') ??
           readStringOption(source, 'deployment_slug') ??
           source.project_key;
+        const issueType = readStringOption(source, 'issue_type');
         if (!token || !deploymentSlug) {
           throw new OMTError({
             code: ErrorCodes.CONFIG_INVALID,
@@ -637,6 +638,7 @@ export class SourceSyncService {
           token,
           deploymentSlug,
           repositoryFullName: readStringOption(source, 'repository_full_name'),
+          issueType: issueType === 'sast' || issueType === 'sca' ? issueType : undefined,
           apiBaseUrl: source.api_url,
         });
       }

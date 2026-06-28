@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import type { AdapterFetchResult, BaseAdapter, ConnectionTestResult } from '@/adapters/base-adapter.js';
 import type { CredentialStore } from '@/config/credential-store.js';
@@ -16,6 +16,7 @@ describe('SourceSyncService', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     closeConnection(db);
   });
 
@@ -729,6 +730,37 @@ describe('SourceSyncService', () => {
     expectSkippedSource(result, 'snyk', 'Snyk source snyk had no project match for acme/web.');
   });
 
+  it('passes Semgrep issue_type to the findings request when syncing Supply Chain findings', async () => {
+    const requestedUrls: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      requestedUrls.push(String(input));
+      return jsonResponse({ findings: [] });
+    });
+    const config = createConfig([
+      {
+        id: 'semgrep',
+        type: 'semgrep',
+        enabled: true,
+        token_ref: 'semgrep',
+        options: { deployment: 'acme', issue_type: 'sca' },
+      },
+    ]);
+    const service = new SourceSyncService({
+      db,
+      config,
+      databasePath: ':memory:',
+      credentialStore: new StaticCredentialStore('token-123') as unknown as CredentialStore,
+      detectCurrentGitHubRepository: async () => ({ owner: 'acme', repo: 'web' }),
+    });
+
+    const result = await service.syncSources({ maxPages: 1 });
+
+    expect(result).toMatchObject({ sources_synced: 1, findings_imported: 0 });
+    expect(requestedUrls).toEqual([
+      'https://semgrep.dev/api/v1/deployments/acme/findings?page=0&page_size=100&issue_type=sca&repos=acme%2Fweb',
+    ]);
+  });
+
   it('infers a SonarCloud project key from a unique exact current repository match', async () => {
     const config = createConfig(inferableSonarCloudSources());
     const { observedSources, service } = createObservedSyncService({
@@ -1029,6 +1061,13 @@ function expectScopedSourceNeedsRepositorySkip(
   const entry = result.results.find((r) => r.source_id === sourceId);
   expect(entry).toMatchObject({ status: 'skipped' });
   expect(entry?.error_message).toContain('needs a current GitHub repository');
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 function gitHubSources(): SourceConfig[] {
