@@ -193,9 +193,21 @@ function sanitizeSourceOptions(source: SetupSourceInput): Record<string, unknown
       };
     }
     case 'semgrep': {
+      const issueType = readSemgrepIssueTypeOption(source.options, source.name ?? source.id);
+      const sanitizedOptions: Record<string, unknown> = {};
+      const deployment = readStringOption(source.options, 'deployment');
+      const deploymentSlug = readStringOption(source.options, 'deployment_slug');
+      if (deployment) {
+        sanitizedOptions.deployment = deployment;
+      }
+      if (deploymentSlug) {
+        sanitizedOptions.deployment_slug = deploymentSlug;
+      }
+      if (issueType) {
+        sanitizedOptions.issue_type = issueType;
+      }
       return {
-        deployment: readStringOption(source.options, 'deployment'),
-        deployment_slug: readStringOption(source.options, 'deployment_slug'),
+        ...sanitizedOptions,
       };
     }
     case 'sarif':
@@ -203,6 +215,15 @@ function sanitizeSourceOptions(source: SetupSourceInput): Record<string, unknown
       return {};
     }
   }
+}
+
+function readSemgrepIssueTypeOption(options: Record<string, unknown>, sourceName: string): 'sast' | 'sca' | undefined {
+  const issueType = readStringOption(options, 'issue_type');
+  if (issueType === undefined || issueType === 'sast' || issueType === 'sca') {
+    return issueType;
+  }
+
+  throw new SetupValidationError(`Semgrep source ${sourceName} issue_type must be "sast" or "sca".`);
 }
 
 /** Handle GET /api/setup/status */
@@ -421,13 +442,14 @@ async function handleSaveSetup(req: IncomingMessage, res: ServerResponse): Promi
     const warnings: string[] = [];
     const sourceMap = new Map(loadedConfig.config.sources.map((source) => [source.id, source]));
     const sources: SourceConfig[] = [];
+    const reusableTokenSources: SourceConfig[] = [...loadedConfig.config.sources];
     let actualTokenStorage = parsed.data.token_storage;
 
     for (const source of parsed.data.sources) {
       const prepared = await prepareSetupSource({
         source,
         existingSource: sourceMap.get(source.id),
-        existingSources: loadedConfig.config.sources,
+        existingSources: reusableTokenSources,
         tokenStorage: parsed.data.token_storage,
         credentialStore,
         warnings,
@@ -436,6 +458,7 @@ async function handleSaveSetup(req: IncomingMessage, res: ServerResponse): Promi
         actualTokenStorage = prepared.storage;
       }
       sources.push(...prepared.sources);
+      reusableTokenSources.push(...prepared.sources);
     }
 
     const managedTypes = new Set<ScannerType>(['sarif', 'github', 'sonarcloud', 'socket', 'snyk', 'semgrep']);
@@ -475,7 +498,15 @@ async function prepareSetupSource(params: {
     return await prepareGitHubSetupSource(params);
   }
 
-  const resolvedToken = await resolveTokenRef(params);
+  const reusableTokenSource = params.existingSource ?? findReusableTokenSource(params.existingSources, source.type);
+  const sourceForToken = params.existingSource || !reusableTokenSource
+    ? source
+    : { ...source, token: undefined };
+  const resolvedToken = await resolveTokenRef({
+    ...params,
+    source: sourceForToken,
+    existingSource: reusableTokenSource,
+  });
   return {
     sources: [{
       id: source.id,
@@ -489,6 +520,10 @@ async function prepareSetupSource(params: {
     }],
     storage: resolvedToken.storage,
   };
+}
+
+function findReusableTokenSource(sources: SourceConfig[], scannerType: string): SourceConfig | undefined {
+  return sources.find((candidate) => candidate.type === scannerType && Boolean(candidate.token_ref));
 }
 
 async function prepareGitHubSetupSource(params: {

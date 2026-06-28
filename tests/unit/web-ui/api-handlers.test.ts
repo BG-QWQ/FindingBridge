@@ -352,6 +352,78 @@ describe('handleApiRequest', () => {
     ]);
   });
 
+  it('persists Semgrep issue type from setup options', async () => {
+    const response = new StubResponse();
+    const request = createJsonRequest('/api/setup/save', 'POST', {
+      token_storage: 'env',
+      sources: [
+        {
+          id: 'semgrep-sca',
+          type: 'semgrep',
+          name: 'Semgrep Supply Chain',
+          enabled: true,
+          token: 'token-123',
+          options: { deployment: 'acme-deployment', issue_type: 'sca' },
+        },
+      ],
+    });
+
+    const handled = await handleApiRequest(request, response as unknown as ServerResponse);
+
+    expect(handled).toBe(true);
+    expect(response.statusCode).toBe(200);
+    expect(configState.savedConfig?.sources).toEqual([
+      expect.objectContaining({
+        id: 'semgrep-sca',
+        type: 'semgrep',
+        options: { deployment: 'acme-deployment', issue_type: 'sca' },
+      }),
+    ]);
+  });
+
+  it('reuses the same Semgrep token reference for Code and Supply Chain setup sources', async () => {
+    const response = new StubResponse();
+    const request = createJsonRequest('/api/setup/save', 'POST', {
+      token_storage: 'env',
+      sources: [
+        {
+          id: 'semgrep',
+          type: 'semgrep',
+          name: 'Semgrep Code',
+          enabled: true,
+          token: 'token-123',
+          options: { deployment: 'acme-deployment', issue_type: 'sast' },
+        },
+        {
+          id: 'semgrep-supply-chain',
+          type: 'semgrep',
+          name: 'Semgrep Supply Chain',
+          enabled: true,
+          token: 'token-123',
+          options: { deployment: 'acme-deployment', issue_type: 'sca' },
+        },
+      ],
+    });
+
+    const handled = await handleApiRequest(request, response as unknown as ServerResponse);
+
+    expect(handled).toBe(true);
+    expect(response.statusCode).toBe(200);
+    expect(configState.savedConfig?.sources).toEqual([
+      expect.objectContaining({ id: 'semgrep', token_ref: 'OMT_TOKEN_GITHUB_CODE_SCANNING' }),
+      expect.objectContaining({ id: 'semgrep-supply-chain', token_ref: 'OMT_TOKEN_GITHUB_CODE_SCANNING' }),
+    ]);
+    expect(credentialState.setTokenCalls).toEqual([{ sourceId: 'semgrep', token: 'token-123', storage: 'env' }]);
+  });
+
+  it('documents Semgrep issue type selection in the setup form', () => {
+    const markup = readFileSync('src/web-ui/index.html', 'utf-8');
+
+    expect(markup).toContain('semgrep-issue-type');
+    expect(markup).toContain('Supply Chain only');
+    expect(markup).toContain('Code + Supply Chain');
+  });
+
   it('returns the current server command for MCP client previews', async () => {
     const response = new StubResponse();
 
