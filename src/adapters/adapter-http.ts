@@ -47,54 +47,57 @@ const CANONICAL_HEADER_NAMES: Record<string, string> = {
   authorization: 'Authorization',
   'content-type': 'Content-Type',
   'user-agent': 'User-Agent',
+  'x-github-api-version': 'X-GitHub-Api-Version',
 };
 
 function normalizeHeaderName(name: string): string {
-  return CANONICAL_HEADER_NAMES[name.toLowerCase()] ?? name;
+  const lower = name.toLowerCase();
+  if (CANONICAL_HEADER_NAMES[lower]) {
+    return CANONICAL_HEADER_NAMES[lower];
+  }
+
+  if (lower.startsWith('x-')) {
+    return 'X-' + lower.slice(2).split('-').map(capitalizeHeaderSegment).join('-');
+  }
+
+  return name;
 }
 
-/** Convert any `HeadersInit` into a plain header record.
- *
- * Supports plain objects, `Headers` instances, and header arrays so callers
- * can pass whichever shape is most convenient. Duplicate header names are
- * collapsed using case-insensitive comparison while preserving canonical
- * casing for well-known headers.
- */
-function headersInitToRecord(headers: HeadersInit | undefined): HeaderRecord {
-  if (!headers) {
-    return {};
-  }
-
-  const record: HeaderRecord = {};
-  if (headers instanceof Headers) {
-    headers.forEach((value, key) => {
-      record[normalizeHeaderName(key)] = value;
-    });
-  } else if (Array.isArray(headers)) {
-    for (const [key, value] of headers) {
-      record[normalizeHeaderName(key)] = value;
-    }
-  } else {
-    for (const [key, value] of Object.entries(headers)) {
-      record[normalizeHeaderName(key)] = value;
-    }
-  }
-  return record;
+function capitalizeHeaderSegment(segment: string): string {
+  return segment.length === 0 ? segment : segment[0].toUpperCase() + segment.slice(1);
 }
 
 /** Merge adapter headers while preserving the intended precedence.
  *
- * Defaults are applied first, then any headers from `init`, and finally any
- * scanner-specific overrides in `headers`.
+ * Native `Headers` handles case-insensitive names and all `HeadersInit` shapes
+ * (plain objects, `Headers` instances, and tuple arrays). The final plain
+ * record keeps existing fetch mock assertions stable while avoiding the
+ * complexity of manual type-checking and normalization.
  */
 function buildAdapterHeaders(options: AdapterRequestOptions): HeaderRecord {
-  return {
+  const headers = new Headers({
     Accept: options.accept,
     Authorization: `${options.authorizationScheme} ${options.token}`,
     'User-Agent': 'oh-my-triage/0.1',
-    ...headersInitToRecord(options.init?.headers),
-    ...headersInitToRecord(options.headers),
-  };
+  });
+
+  if (options.init?.headers) {
+    new Headers(options.init.headers).forEach((value, key) => {
+      headers.set(key, value);
+    });
+  }
+
+  if (options.headers) {
+    new Headers(options.headers).forEach((value, key) => {
+      headers.set(key, value);
+    });
+  }
+
+  const record: HeaderRecord = {};
+  headers.forEach((value, key) => {
+    record[normalizeHeaderName(key)] = value;
+  });
+  return record;
 }
 
 /** Fetch a scanner API response with the standard oh-my-triage adapter headers.
